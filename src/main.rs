@@ -1,6 +1,6 @@
-use dashmap::*;
 use rayon::prelude::*;
-use std::sync::{Arc, Mutex};
+use dashmap::{DashMap, DashSet};
+use std::{sync::{Arc, Mutex}, ops::Deref};
 use rand::prelude::*;
 
 
@@ -22,7 +22,6 @@ struct Food {
     pos: (f32, f32),
 
     val: f32,
-    age: f32,
 }
 
 #[derive(Debug)]
@@ -42,6 +41,8 @@ struct World {
 
     beings: DashMap<u32, Being>,
     foods: DashMap<u32, Food>,
+
+    being_speed: f32,
 
     beingkey: u32,
     foodkey: u32,
@@ -71,6 +72,7 @@ impl World {
             beings: DashMap::new(),
             foods: DashMap::new(),
 
+            being_speed: 10.,
             beingkey: 0,
             foodkey: 0,
         }
@@ -90,7 +92,6 @@ impl World {
                 id: self.foodkey,
                 pos: pos,
                 val: val,
-                age: age,
             },
         );
 
@@ -117,9 +118,21 @@ impl World {
 
         self.beingkey += 1;
     }
+
+
+    pub fn decay_food(mut self){
+        self.foods.par_iter_mut().for_each(|mut entry|{
+            entry.value_mut().val *= 0.9;
+        });
+
+        self.foods.retain(|_, food|{
+            food.val > 0.05
+        });
+    }
 }
 
+
 fn main() {
-    let world = World::new(25., 32);
+    let world = World::new(25., 1000);
     println!("{:?}", world);
 }
