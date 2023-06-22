@@ -1,20 +1,125 @@
-use rayon;
 use dashmap::*;
+use rayon::prelude::*;
+use std::sync::{Arc, Mutex};
+use rand::prelude::*;
 
 
-struct Being{
-    pos: [f32; 2],
+#[derive(Debug)]
+struct Being {
+    id: u32,
+
+    pos: (f32, f32),
+    velocity: (f32, f32),
+    rotation: f32,
+
     health: f32,
-
-    genome: [f32; 64],
-
 }
 
-struct World{
+#[derive(Debug)]
+struct Food {
+    id: u32,
 
+    pos: (f32, f32),
+
+    val: f32,
+    age: f32,
 }
 
+#[derive(Debug)]
+struct Chunk {
+    pos: (u32, u32),
+    being_keys: DashSet<u32>,
+    food_keys: DashSet<u32>,
+}
+
+
+#[derive(Debug)]
+struct World {
+    chunk_size: f32,
+    n_chunks: u32,
+
+    chunks: Vec<Vec<Chunk>>,
+
+    beings: DashMap<u32, Being>,
+    foods: DashMap<u32, Food>,
+
+    beingkey: u32,
+    foodkey: u32,
+}
+
+impl World {
+    pub fn new(chunk_size: f32, n_chunks: u32) -> Self {
+        let world_width: f32 = chunk_size * (n_chunks as f32);
+
+        World {
+            chunk_size: chunk_size,
+            n_chunks: n_chunks,
+
+            chunks: (0..n_chunks)
+                .into_par_iter()
+                .map(|i| {
+                    (0..n_chunks)
+                        .into_iter()
+                        .map(|j| Chunk {
+                            pos: (i, j),
+                            being_keys: DashSet::new(),
+                            food_keys: DashSet::new(),
+                        })
+                        .collect()
+                })
+                .collect(),
+            beings: DashMap::new(),
+            foods: DashMap::new(),
+
+            beingkey: 0,
+            foodkey: 0,
+        }
+    }
+
+    fn pos_to_chunk(&self, pos: (f32, f32)) -> (usize, usize) {
+        let i = ((pos.0 - (pos.0 % self.chunk_size)) / self.chunk_size) as usize;
+        let j = ((pos.1 - (pos.1 % self.chunk_size)) / self.chunk_size) as usize;
+
+        (i, j)
+    }
+
+    pub fn add_food(&mut self, pos: (f32, f32), val: f32, age: f32) {
+        self.foods.insert(
+            self.foodkey,
+            Food {
+                id: self.foodkey,
+                pos: pos,
+                val: val,
+                age: age,
+            },
+        );
+
+        let (i, j) = self.pos_to_chunk(pos);
+        self.chunks[i][j].food_keys.insert(self.foodkey);
+
+        self.foodkey += 1;
+    }
+
+    pub fn add_being(&mut self, pos: (f32, f32), rotation: f32, health: f32) {
+        self.beings.insert(
+            self.beingkey,
+            Being {
+                id: self.beingkey,
+                pos: pos,
+                velocity: (0., 0.),
+                rotation: rotation,
+                health: 10.,
+            },
+        );
+
+        let (i, j) = self.pos_to_chunk(pos);
+        self.chunks[i][j].being_keys.insert(self.beingkey);
+
+        self.beingkey += 1;
+    }
+}
 
 fn main() {
-    println!("Hello, world!");
+    let world = World::new(25., 32);
+    println!("{:?}", world);
 }
