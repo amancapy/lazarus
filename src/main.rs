@@ -9,18 +9,16 @@ struct Being {
     id: u32,
 
     pos: (f32, f32),
-    velocity: (f32, f32),
     rotation: f32,
 
     health: f32,
+    hunger: f32
 }
 
 #[derive(Debug)]
 struct Food {
     id: u32,
-
     pos: (f32, f32),
-
     val: f32,
 }
 
@@ -46,6 +44,21 @@ struct World {
 
     beingkey: u32,
     foodkey: u32,
+}
+
+
+fn normalize_2d((i, j): (f32, f32)) -> (f32, f32){
+    let norm = (i.powi(2) + j.powi(2)).sqrt();
+
+    (i / norm, j / norm)
+}
+
+fn add_2d((i, j): (f32, f32), (k, l): (f32, f32)) -> (f32, f32){
+    (i + k, j + l)
+}
+
+fn scale_2d((i, j): (f32, f32), c: f32) -> (f32, f32){
+    (i * c, j * c)
 }
 
 impl World {
@@ -107,9 +120,9 @@ impl World {
             Being {
                 id: self.beingkey,
                 pos: pos,
-                velocity: (0., 0.),
                 rotation: rotation,
                 health: 10.,
+                hunger: 0.
             },
         );
 
@@ -128,6 +141,22 @@ impl World {
         self.foods.retain(|_, food|{
             food.val > 0.05
         });
+    }
+
+    pub fn fatigue_move_and_kill_beings(mut self){
+        self.beings.par_iter_mut().for_each(|mut entry|{
+
+            let being = entry.value();
+            let direction = (being.rotation.cos(), being.rotation.sin());
+            let fatigue_speed = (10. - being.hunger) / 10. * self.being_speed;
+
+            let curr_pos = entry.value().pos.clone();
+            let new_pos = add_2d(curr_pos, scale_2d(direction, fatigue_speed));
+
+            let mutbeing = entry.value_mut();
+            mutbeing.pos = new_pos;
+
+        })
     }
 }
 
