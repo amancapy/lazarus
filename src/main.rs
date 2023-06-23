@@ -3,6 +3,19 @@ use dashmap::{DashMap, DashSet};
 use std::{sync::{Arc, Mutex}, ops::Deref};
 use rand::prelude::*;
 
+use error_iter::ErrorIter as _;
+use log::error;
+use pixels::{Error, Pixels, SurfaceTexture, wgpu::util::initialize_adapter_from_env_or_default};
+use winit::{dpi::LogicalSize, window::WindowBuilder};
+use winit::event::{Event, VirtualKeyCode};
+use winit::event_loop::{ControlFlow, EventLoop};
+use winit_input_helper::WinitInputHelper;
+
+
+const WIDTH: u32 = 720;
+const HEIGHT: u32 = 720;
+
+
 
 #[derive(Debug)]
 struct Being {
@@ -12,7 +25,8 @@ struct Being {
     rotation: f32,
 
     health: f32,
-    hunger: f32
+    hunger: f32,
+
 }
 
 #[derive(Debug)]
@@ -34,6 +48,7 @@ struct Chunk {
 struct World {
     chunk_size: f32,
     n_chunks: u32,
+    worldsize: f32,
 
     chunks: Vec<Vec<Chunk>>,
 
@@ -41,6 +56,7 @@ struct World {
     foods: DashMap<u32, Food>,
 
     being_speed: f32,
+    being_radius: f32,
 
     beingkey: u32,
     foodkey: u32,
@@ -63,11 +79,11 @@ fn scale_2d((i, j): (f32, f32), c: f32) -> (f32, f32){
 
 impl World {
     pub fn new(chunk_size: f32, n_chunks: u32) -> Self {
-        let world_width: f32 = chunk_size * (n_chunks as f32);
 
         World {
             chunk_size: chunk_size,
             n_chunks: n_chunks,
+            worldsize: chunk_size * (n_chunks as f32),
 
             chunks: (0..n_chunks)
                 .into_par_iter()
@@ -86,6 +102,8 @@ impl World {
             foods: DashMap::new(),
 
             being_speed: 10.,
+            being_radius: chunk_size - 5.,
+
             beingkey: 0,
             foodkey: 0,
         }
@@ -143,7 +161,7 @@ impl World {
         });
     }
 
-    pub fn fatigue_move_and_kill_beings(mut self){
+    pub fn move_beings(mut self){
         self.beings.par_iter_mut().for_each(|mut entry|{
 
             let being = entry.value();
@@ -153,15 +171,49 @@ impl World {
             let curr_pos = entry.value().pos.clone();
             let new_pos = add_2d(curr_pos, scale_2d(direction, fatigue_speed));
 
+            if (new_pos.0 - self.being_radius < 0. || new_pos.0 + self.being_radius > self.worldsize
+            || new_pos.1 - self.being_radius < 0. || new_pos.1 + self.being_radius > self.worldsize){
+
+            }
+
             let mutbeing = entry.value_mut();
             mutbeing.pos = new_pos;
 
-        })
+
+            let curr_chunk = self.pos_to_chunk(curr_pos);
+            let new_chunk = self.pos_to_chunk(new_pos);
+        });
+    }
+
+    pub fn check_being_collision(mut self){
+
     }
 }
 
 
 fn main() {
-    let world = World::new(25., 1000);
-    println!("{:?}", world);
+    env_logger::init();
+    let event_loop = EventLoop::new();
+    let mut input = WinitInputHelper::new();
+
+    let window = {
+        let size = LogicalSize::new(WIDTH as f64, HEIGHT as f64);
+
+        WindowBuilder::new().
+        with_title("world").
+        with_inner_size(size).
+        with_min_inner_size(size).
+        build(&event_loop)
+        .unwrap()
+    };
+
+
+    let mut pixels = {
+        let mut window_size = window.inner_size();
+        let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
+        Pixels::new(WIDTH, HEIGHT, surface_texture)
+    };
+
+    
 }
+
