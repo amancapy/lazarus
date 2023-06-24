@@ -173,6 +173,12 @@ impl World {
 
             let curr_chunk = self.pos_to_chunk(curr_pos);
             let new_chunk = self.pos_to_chunk(new_pos);
+
+
+            if !(curr_chunk == new_chunk){
+                self.chunks[curr_chunk.0][curr_chunk.1].being_keys.remove(&being.id);
+                self.chunks[new_chunk.0][new_chunk.1].being_keys.insert(being.id);
+            }
         });
     }
 
