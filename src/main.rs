@@ -68,6 +68,18 @@ fn scale_2d((i, j): (f32, f32), c: f32) -> (f32, f32){
     (i * c, j * c)
 }
 
+fn dist_2d((i1, j1): (f32, f32), (i2, j2): (f32, f32)) -> f32{
+    ((i1 - i2).powi(2) + (j1 - j2).powi(2)).sqrt()
+}
+
+fn one_to_two(ij: usize) -> (usize, usize){
+    ((ij - ij % W_SIZE) / W_SIZE, ij % W_SIZE)
+}
+
+fn two_to_one((i, j): (usize, usize)) -> usize{
+    i * W_SIZE + j
+}
+
 impl World {
     pub fn new(chunk_size: f32, n_chunks: u32) -> Self {
 
@@ -155,11 +167,11 @@ impl World {
     pub fn move_beings(mut self){
         self.beings.par_iter_mut().for_each(|mut entry|{
 
-            let being = entry.value();
+            let being = entry.value_mut();
             let direction = (being.rotation.cos(), being.rotation.sin());
             let fatigue_speed = (10. - being.hunger) / 10. * self.being_speed;
 
-            let curr_pos = entry.value().pos.clone();
+            let curr_pos = being.pos.clone();
             let new_pos = add_2d(curr_pos, scale_2d(direction, fatigue_speed));
 
             if (new_pos.0 - self.being_radius < 0. || new_pos.0 + self.being_radius > self.worldsize
@@ -167,8 +179,7 @@ impl World {
 
             }
 
-            let mutbeing = entry.value_mut();
-            mutbeing.pos = new_pos;
+            being.pos = new_pos;
 
 
             let curr_chunk = self.pos_to_chunk(curr_pos);
@@ -186,9 +197,31 @@ impl World {
         self.beings.par_iter_mut().for_each(|being|{
             let (key, being) = (being.key(), being.value());
 
-            let being_chunk = self.pos_to_chunk(being.pos);
+            let (bci, bcj) = self.pos_to_chunk(being.pos);
+            for (di, dj) in [(0, 0), (0, 1), (1, 0), (1, 1)]{
+                let (a, b) = (bci as i32 + di, bcj as i32 + dj);
 
+                if !(a < 0 || b < 0 || a >= self.n_chunks as i32 || b >= self.n_chunks as i32){
+                    let (a, b) = (a as usize, b as usize);
+                    self.chunks[a][b].being_keys.par_iter().for_each(|key|{
+                        
+                        let other_pos = self.beings.get(&key).unwrap().value().pos;
+                        let self_pos = being.pos;
+
+                        if dist_2d(self_pos, other_pos) < 2. * self.being_radius{
+                            // TODO
+                        }
+
+                    });
+                }
+            }
         })
+    }
+    
+    pub fn get_being_pixels(mut self){
+        let shared_buffer = (0..W_SIZE.pow(2)).into_par_iter().for_each(|ij|{
+            let (i, j) = one_to_two(ij);
+        });
     }
 }
 
