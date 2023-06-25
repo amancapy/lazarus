@@ -1,12 +1,10 @@
-use rayon::prelude::*;
 use dashmap::{DashMap, DashSet};
-use std::{sync::{Arc, Mutex}};
-use rand::prelude::*;
 use minifb::{Key, Window, WindowOptions};
-
+use rand::prelude::*;
+use rayon::prelude::*;
+use std::sync::{Arc, Mutex};
 
 const W_SIZE: usize = 720;
-
 
 #[derive(Debug)]
 struct Being {
@@ -17,7 +15,6 @@ struct Being {
 
     health: f32,
     hunger: f32,
-
 }
 
 #[derive(Debug)]
@@ -34,14 +31,13 @@ struct Chunk {
     food_keys: DashSet<u32>,
 }
 
-
 #[derive(Debug)]
 struct World {
     chunk_size: f32,
     n_chunks: u32,
     worldsize: f32,
 
-    chunks: Vec<Vec<Chunk>>,
+    chunks: Vec<Vec<Arc<Mutex<Chunk>>>>,
 
     beings: DashMap<u32, Being>,
     foods: DashMap<u32, Food>,
@@ -51,42 +47,42 @@ struct World {
 
     beingkey: u32,
     foodkey: u32,
+
+    repr: Vec<u32>
 }
 
-
-fn normalize_2d((i, j): (f32, f32)) -> (f32, f32){
+fn normalize_2d((i, j): (f32, f32)) -> (f32, f32) {
     let norm = (i.powi(2) + j.powi(2)).sqrt();
 
     (i / norm, j / norm)
 }
 
-fn add_2d((i, j): (f32, f32), (k, l): (f32, f32)) -> (f32, f32){
+fn add_2d((i, j): (f32, f32), (k, l): (f32, f32)) -> (f32, f32) {
     (i + k, j + l)
 }
 
-fn scale_2d((i, j): (f32, f32), c: f32) -> (f32, f32){
+fn scale_2d((i, j): (f32, f32), c: f32) -> (f32, f32) {
     (i * c, j * c)
 }
 
-fn dist_2d((i1, j1): (f32, f32), (i2, j2): (f32, f32)) -> f32{
+fn dist_2d((i1, j1): (f32, f32), (i2, j2): (f32, f32)) -> f32 {
     ((i1 - i2).powi(2) + (j1 - j2).powi(2)).sqrt()
 }
 
-fn one_to_two(ij: usize) -> (usize, usize){
+fn one_to_two(ij: usize) -> (usize, usize) {
     ((ij - ij % W_SIZE) / W_SIZE, ij % W_SIZE)
 }
 
-fn two_to_one((i, j): (usize, usize)) -> usize{
+fn two_to_one((i, j): (usize, usize)) -> usize {
     i * W_SIZE + j
 }
 
-fn dir_from_theta(theta: f32) -> (f32, f32){
+fn dir_from_theta(theta: f32) -> (f32, f32) {
     (theta.cos(), theta.sin())
 }
 
 impl World {
     pub fn new(chunk_size: f32, n_chunks: u32) -> Self {
-
         World {
             chunk_size: chunk_size,
             n_chunks: n_chunks,
@@ -97,11 +93,11 @@ impl World {
                 .map(|i| {
                     (0..n_chunks)
                         .into_iter()
-                        .map(|j| Chunk {
+                        .map(|j| Arc::new(Mutex::new(Chunk {
                             pos: (i, j),
                             being_keys: DashSet::new(),
                             food_keys: DashSet::new(),
-                        })
+                        })))
                         .collect()
                 })
                 .collect(),
@@ -109,10 +105,12 @@ impl World {
             foods: DashMap::new(),
 
             being_speed: 10.,
-            being_radius: chunk_size - 5.,
+            being_radius: chunk_size / 3.,
 
             beingkey: 0,
             foodkey: 0,
+
+            repr: vec![]
         }
     }
 
@@ -134,7 +132,7 @@ impl World {
         );
 
         let (i, j) = self.pos_to_chunk(pos);
-        self.chunks[i][j].food_keys.insert(self.foodkey);
+        self.chunks[i][j].lock().unwrap().food_keys.insert(self.foodkey);
 
         self.foodkey += 1;
     }
@@ -147,30 +145,26 @@ impl World {
                 pos: pos,
                 rotation: rotation,
                 health: 10.,
-                hunger: 0.
+                hunger: 0.,
             },
         );
 
         let (i, j) = self.pos_to_chunk(pos);
-        self.chunks[i][j].being_keys.insert(self.beingkey);
+        self.chunks[i][j].lock().unwrap().being_keys.insert(self.beingkey);
 
         self.beingkey += 1;
     }
 
-
-    pub fn decay_food(mut self){
-        self.foods.par_iter_mut().for_each(|mut entry|{
+    pub fn decay_food(mut self) {
+        self.foods.par_iter_mut().for_each(|mut entry| {
             entry.value_mut().val *= 0.9;
         });
 
-        self.foods.retain(|_, food|{
-            food.val > 0.05
-        });
+        self.foods.retain(|_, food| food.val > 0.05);
     }
 
-    pub fn move_beings(&mut self){
-        self.beings.par_iter_mut().for_each(|mut entry|{
-
+    pub fn move_beings(&mut self) {
+        self.beings.par_iter_mut().for_each(|mut entry| {
             let being = entry.value_mut();
             let direction = (being.rotation.cos(), being.rotation.sin());
             let fatigue_speed = (10. - being.hunger) / 10. * self.being_speed;
@@ -178,84 +172,128 @@ impl World {
             let curr_pos = being.pos.clone();
             let new_pos = add_2d(curr_pos, scale_2d(direction, fatigue_speed));
 
-            if (new_pos.0 - self.being_radius < 0. || new_pos.0 + self.being_radius >= self.worldsize
-            || new_pos.1 - self.being_radius < 0. || new_pos.1 + self.being_radius >= self.worldsize){
+            if !(new_pos.0 - self.being_radius < 1.
+                || new_pos.0 + self.being_radius >= self.worldsize - 1.
+                || new_pos.1 - self.being_radius < 1.
+                || new_pos.1 + self.being_radius >= self.worldsize - 1.)
+            {
+                being.pos = new_pos;
+                let curr_chunk = self.pos_to_chunk(curr_pos);
+                let new_chunk = self.pos_to_chunk(new_pos);
 
+                if !(curr_chunk == new_chunk) {
+                    self.chunks[curr_chunk.0][curr_chunk.1].lock().unwrap()
+                        .being_keys
+                        .remove(&being.id);
+                    self.chunks[new_chunk.0][new_chunk.1].lock().unwrap()
+                        .being_keys
+                        .insert(being.id);
+                }
             }
 
-            being.pos = new_pos;
-
-
-            let curr_chunk = self.pos_to_chunk(curr_pos);
-            let new_chunk = self.pos_to_chunk(new_pos);
-
-
-            if !(curr_chunk == new_chunk){
-                self.chunks[curr_chunk.0][curr_chunk.1].being_keys.remove(&being.id);
-                self.chunks[new_chunk.0][new_chunk.1].being_keys.insert(being.id);
+            else {
+                let new_pos = add_2d(new_pos, scale_2d(direction, -fatigue_speed));
+                being.pos = new_pos;
+                being.rotation = being.rotation * -1. + 0.1;
             }
+
+            
         });
     }
 
-    pub fn check_being_collision(&mut self){
-        self.beings.par_iter_mut().for_each(|being|{
-
+    pub fn check_being_collision(&mut self) {
+        self.beings.par_iter_mut().for_each(|being| {
             println!("{}", being.key());
             let (key, being) = (being.key(), being.value());
 
             let (bci, bcj) = self.pos_to_chunk(being.pos);
-            for (di, dj) in [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 0), (0, 1), (1, 0), (1, 1)]{
+            for (di, dj) in [
+                (-1, -1),
+                (-1, 0),
+                (-1, 1),
+                (0, -1),
+                (0, 0),
+                (0, 1),
+                (1, 0),
+                (1, 1),
+            ] {
                 let (a, b) = (bci as i32 + di, bcj as i32 + dj);
 
-                if !(a < 0 || b < 0 || a >= self.n_chunks as i32 || b >= self.n_chunks as i32){
+                if !(a < 0 || b < 0 || a >= self.n_chunks as i32 || b >= self.n_chunks as i32) {
                     let (a, b) = (a as usize, b as usize);
-                    self.chunks[a][b].being_keys.par_iter().for_each(|key|{
-                        
+                    self.chunks[a][b].lock().unwrap().being_keys.par_iter().for_each(|key| {
                         let mut other = self.beings.get_mut(&key).unwrap();
                         let self_pos = being.pos;
                         let other_pos = other.value().pos;
-                        if dist_2d(self_pos, other_pos) < 2. * self.being_radius{
-                            other.pos = add_2d(other_pos, scale_2d(dir_from_theta(other.rotation), 2.));
+                        if dist_2d(self_pos, other_pos) < 2. * self.being_radius {
+                            other.pos =
+                                add_2d(other_pos, scale_2d(dir_from_theta(other.rotation), 2.));
                         }
-
                     });
                 }
             }
         })
     }
-    
-    pub fn get_being_pixels(&mut self) -> Vec<u32> {
-        let mut shared_buffer: Vec<Arc<Mutex<u32>>> = (0..W_SIZE.pow(2)).into_par_iter().map(|ij|{
-            Arc::new(Mutex::new(0))
-        }).collect();
 
+    pub fn decide_being_pixels(&mut self) {
+        let mut shared_buffer: Vec<Arc<Mutex<u32>>> = (0..W_SIZE.pow(2))
+            .into_par_iter()
+            .map(|ij| Arc::new(Mutex::new(0)))
+            .collect();
 
-        self.beings.par_iter_mut().for_each(|being|{
+        self.beings.par_iter_mut().for_each(|being| {
             let (bi, bj) = being.value().pos;
 
-            (0.max((bi - self.being_radius.ceil()) as usize)..self.worldsize.min(bi + self.being_radius.ceil()) as usize).into_par_iter().for_each(|i|{
-                (0.max((bj - self.being_radius.ceil()) as usize)..self.worldsize.min(bj + self.being_radius.ceil()) as usize).into_par_iter().for_each(|j| {
-                    let (fi, fj) = (i as f32, j as f32);
+            (0.max((bi - self.being_radius.ceil()) as usize)
+                ..self.worldsize.min(bi + self.being_radius.ceil()) as usize)
+                .into_par_iter()
+                .for_each(|i| {
+                    (0.max((bj - self.being_radius.ceil()) as usize)
+                        ..self.worldsize.min(bj + self.being_radius.ceil()) as usize)
+                        .into_par_iter()
+                        .for_each(|j| {
+                            let (fi, fj) = (i as f32, j as f32);
 
-                    if dist_2d((fi, fj), (bi, bj)) < self.being_radius {
-                        *shared_buffer[two_to_one((i, j))].lock().unwrap() = 10000000;
-                    }
-                })
-            });
+                            if dist_2d((fi, fj), (bi, bj)) <= self.being_radius {
+                                *shared_buffer[two_to_one((i, j))].lock().unwrap() = 10000000;
+                            }
+                        })
+                });
         });
 
-        
-        shared_buffer.into_par_iter().map(|i|{
-            *i.lock().unwrap()
-        }).collect()
+        self.repr = shared_buffer
+            .into_par_iter()
+            .map(|i| *i.lock().unwrap())
+            .collect();
     }
+
+    // fn pacwatch(&self, (pi, pj): (f32, f32), rad: f32) -> Vec<Vec<u32>> {
+    //     let (pi, pj) = (pi as u32, pj as u32);
+
+
+    // }
 }
 
 fn main() {
     let mut world = World::new(22.5, 32);
     world.add_being((50., 50.), 1.57, 10.);
+    world.add_being((100., 50.), 1.57, 10.);
+    world.add_being((150., 50.), 1.57, 10.);
+    world.add_being((200., 50.), 1.57, 10.);
+    world.add_being((250., 50.), 1.57, 10.);
+    world.add_being((300., 50.), 1.57, 10.);
+    world.add_being((350., 50.), 1.57, 10.);
+    world.add_being((400., 50.), 1.57, 10.);
+    world.add_being((450., 50.), 1.57, 10.);
     world.add_being((50., 670.), -1.57, 10.);
-
+    world.add_being((100., 670.), -1.57, 10.);
+    world.add_being((150., 670.), -1.57, 10.);
+    world.add_being((200., 670.), -1.57, 10.);
+    world.add_being((250., 670.), -1.57, 10.);
+    world.add_being((300., 670.), -1.57, 10.);
+    world.add_being((350., 670.), -1.57, 10.);
+    world.add_being((400., 670.), -1.57, 10.);
+    world.add_being((450., 670.), -1.57, 10.);
 
     let mut window = Window::new(
         "Test - ESC to exit",
@@ -266,23 +304,21 @@ fn main() {
     .unwrap_or_else(|e| {
         panic!("{}", e);
     });
-    
-    let mut i = 0;
-    window.limit_update_rate(Some(std::time::Duration::from_micros(1)));
-    while window.is_open() && !window.is_key_down(Key::Escape) {
 
+    let mut i = 0;
+    window.limit_update_rate(Some(std::time::Duration::from_micros(0)));
+    while window.is_open() && !window.is_key_down(Key::Escape) {
         i += 1;
-        if i % 1 == 0{
+        if i % 100 == 0 {
             println!("{}", i);
         }
 
         world.move_beings();
-        world.check_being_collision();
-        let world_pixels = world.get_being_pixels();
-        
+        // world.check_being_collision();
+        world.decide_being_pixels();
 
         window
-            .update_with_buffer(&world_pixels, W_SIZE, W_SIZE)
+            .update_with_buffer(&world.repr, W_SIZE, W_SIZE)
             .unwrap();
     }
 }
