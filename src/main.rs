@@ -1,6 +1,6 @@
 use rayon::prelude::*;
 use dashmap::{DashMap, DashSet};
-use std::{sync::{Arc, Mutex}, ops::Deref};
+use std::{sync::{Arc, Mutex}};
 use rand::prelude::*;
 use minifb::{Key, Window, WindowOptions};
 
@@ -78,6 +78,10 @@ fn one_to_two(ij: usize) -> (usize, usize){
 
 fn two_to_one((i, j): (usize, usize)) -> usize{
     i * W_SIZE + j
+}
+
+fn dir_from_theta(theta: f32) -> (f32, f32){
+    (theta.cos(), theta.sin())
 }
 
 impl World {
@@ -164,7 +168,7 @@ impl World {
         });
     }
 
-    pub fn move_beings(mut self){
+    pub fn move_beings(&mut self){
         self.beings.par_iter_mut().for_each(|mut entry|{
 
             let being = entry.value_mut();
@@ -174,8 +178,8 @@ impl World {
             let curr_pos = being.pos.clone();
             let new_pos = add_2d(curr_pos, scale_2d(direction, fatigue_speed));
 
-            if (new_pos.0 - self.being_radius < 0. || new_pos.0 + self.being_radius > self.worldsize
-            || new_pos.1 - self.being_radius < 0. || new_pos.1 + self.being_radius > self.worldsize){
+            if (new_pos.0 - self.being_radius < 0. || new_pos.0 + self.being_radius >= self.worldsize
+            || new_pos.1 - self.being_radius < 0. || new_pos.1 + self.being_radius >= self.worldsize){
 
             }
 
@@ -193,23 +197,25 @@ impl World {
         });
     }
 
-    pub fn check_being_collision(mut self){
+    pub fn check_being_collision(&mut self){
         self.beings.par_iter_mut().for_each(|being|{
+
+            println!("{}", being.key());
             let (key, being) = (being.key(), being.value());
 
             let (bci, bcj) = self.pos_to_chunk(being.pos);
-            for (di, dj) in [(0, 0), (0, 1), (1, 0), (1, 1)]{
+            for (di, dj) in [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 0), (0, 1), (1, 0), (1, 1)]{
                 let (a, b) = (bci as i32 + di, bcj as i32 + dj);
 
                 if !(a < 0 || b < 0 || a >= self.n_chunks as i32 || b >= self.n_chunks as i32){
                     let (a, b) = (a as usize, b as usize);
                     self.chunks[a][b].being_keys.par_iter().for_each(|key|{
                         
-                        let other_pos = self.beings.get(&key).unwrap().value().pos;
+                        let mut other = self.beings.get_mut(&key).unwrap();
                         let self_pos = being.pos;
-
+                        let other_pos = other.value().pos;
                         if dist_2d(self_pos, other_pos) < 2. * self.being_radius{
-                            // TODO
+                            other.pos = add_2d(other_pos, scale_2d(dir_from_theta(other.rotation), 2.));
                         }
 
                     });
@@ -218,15 +224,38 @@ impl World {
         })
     }
     
-    pub fn get_being_pixels(mut self){
-        let shared_buffer = (0..W_SIZE.pow(2)).into_par_iter().for_each(|ij|{
-            let (i, j) = one_to_two(ij);
+    pub fn get_being_pixels(&mut self) -> Vec<u32> {
+        let mut shared_buffer: Vec<Arc<Mutex<u32>>> = (0..W_SIZE.pow(2)).into_par_iter().map(|ij|{
+            Arc::new(Mutex::new(0))
+        }).collect();
+
+
+        self.beings.par_iter_mut().for_each(|being|{
+            let (bi, bj) = being.value().pos;
+
+            (0.max((bi - self.being_radius.ceil()) as usize)..self.worldsize.min(bi + self.being_radius.ceil()) as usize).into_par_iter().for_each(|i|{
+                (0.max((bj - self.being_radius.ceil()) as usize)..self.worldsize.min(bj + self.being_radius.ceil()) as usize).into_par_iter().for_each(|j| {
+                    let (fi, fj) = (i as f32, j as f32);
+
+                    if dist_2d((fi, fj), (bi, bj)) < self.being_radius {
+                        *shared_buffer[two_to_one((i, j))].lock().unwrap() = 10000000;
+                    }
+                })
+            });
         });
+
+        
+        shared_buffer.into_par_iter().map(|i|{
+            *i.lock().unwrap()
+        }).collect()
     }
 }
 
 fn main() {
-    let mut buffer: Vec<u32> = vec![0; W_SIZE.pow(2)];
+    let mut world = World::new(22.5, 32);
+    world.add_being((50., 50.), 1.57, 10.);
+    world.add_being((50., 670.), -1.57, 10.);
+
 
     let mut window = Window::new(
         "Test - ESC to exit",
@@ -237,15 +266,23 @@ fn main() {
     .unwrap_or_else(|e| {
         panic!("{}", e);
     });
-
-    // window.limit_update_rate(Some(std::time::Duration::from_micros(16600)));
+    
+    let mut i = 0;
+    window.limit_update_rate(Some(std::time::Duration::from_micros(1)));
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        
-        
 
+        i += 1;
+        if i % 1 == 0{
+            println!("{}", i);
+        }
+
+        world.move_beings();
+        world.check_being_collision();
+        let world_pixels = world.get_being_pixels();
+        
 
         window
-            .update_with_buffer(&buffer, W_SIZE, W_SIZE)
+            .update_with_buffer(&world_pixels, W_SIZE, W_SIZE)
             .unwrap();
     }
 }
