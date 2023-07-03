@@ -2,7 +2,10 @@ use dashmap::{DashMap, DashSet};
 use minifb::{Key, Window, WindowOptions};
 use rand::prelude::*;
 use rayon::prelude::*;
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 const W_SIZE: usize = 720;
 
@@ -27,8 +30,8 @@ struct Food {
 #[derive(Debug)]
 struct Chunk {
     pos: (u32, u32),
-    being_keys: DashSet<u32>,
-    food_keys: DashSet<u32>,
+    being_keys: Vec<u32>,
+    food_keys: Vec<u32>,
 }
 
 #[derive(Debug)]
@@ -48,7 +51,7 @@ struct World {
     beingkey: u32,
     foodkey: u32,
 
-    repr: Vec<u32>
+    repr: Vec<u32>,
 }
 
 fn normalize_2d((i, j): (f32, f32)) -> (f32, f32) {
@@ -93,24 +96,26 @@ impl World {
                 .map(|i| {
                     (0..n_chunks)
                         .into_iter()
-                        .map(|j| Arc::new(Mutex::new(Chunk {
-                            pos: (i, j),
-                            being_keys: DashSet::new(),
-                            food_keys: DashSet::new(),
-                        })))
+                        .map(|j| {
+                            Arc::new(Mutex::new(Chunk {
+                                pos: (i, j),
+                                being_keys: vec![],
+                                food_keys: vec![],
+                            }))
+                        })
                         .collect()
                 })
                 .collect(),
             beings: DashMap::new(),
             foods: DashMap::new(),
 
-            being_speed: 10.,
+            being_speed: 1.,
             being_radius: chunk_size / 3.,
 
             beingkey: 0,
             foodkey: 0,
 
-            repr: vec![]
+            repr: vec![],
         }
     }
 
@@ -132,7 +137,11 @@ impl World {
         );
 
         let (i, j) = self.pos_to_chunk(pos);
-        self.chunks[i][j].lock().unwrap().food_keys.insert(self.foodkey);
+        self.chunks[i][j]
+            .lock()
+            .unwrap()
+            .food_keys
+            .push(self.foodkey);
 
         self.foodkey += 1;
     }
@@ -150,7 +159,11 @@ impl World {
         );
 
         let (i, j) = self.pos_to_chunk(pos);
-        self.chunks[i][j].lock().unwrap().being_keys.insert(self.beingkey);
+        self.chunks[i][j]
+            .lock()
+            .unwrap()
+            .being_keys
+            .push(self.beingkey);
 
         self.beingkey += 1;
     }
@@ -182,28 +195,27 @@ impl World {
                 let new_chunk = self.pos_to_chunk(new_pos);
 
                 if !(curr_chunk == new_chunk) {
-                    self.chunks[curr_chunk.0][curr_chunk.1].lock().unwrap()
+                    self.chunks[curr_chunk.0][curr_chunk.1]
+                        .lock()
+                        .unwrap()
                         .being_keys
-                        .remove(&being.id);
-                    self.chunks[new_chunk.0][new_chunk.1].lock().unwrap()
+                        .retain(|x| x != &being.id);
+                    self.chunks[new_chunk.0][new_chunk.1]
+                        .lock()
+                        .unwrap()
                         .being_keys
-                        .insert(being.id);
+                        .push(being.id);
                 }
-            }
-
-            else {
+            } else {
                 let new_pos = add_2d(new_pos, scale_2d(direction, -fatigue_speed));
                 being.pos = new_pos;
                 being.rotation = being.rotation * -1. + 0.1;
             }
-
-            
         });
     }
 
     pub fn check_being_collision(&mut self) {
-        self.beings.par_iter_mut().for_each(|being| {
-            println!("{}", being.key());
+        self.beings.iter_mut().for_each(|being| {
             let (key, being) = (being.key(), being.value());
 
             let (bci, bcj) = self.pos_to_chunk(being.pos);
@@ -212,8 +224,8 @@ impl World {
                 (-1, 0),
                 (-1, 1),
                 (0, -1),
-                (0, 0),
                 (0, 1),
+                (1, -1),
                 (1, 0),
                 (1, 1),
             ] {
@@ -221,15 +233,24 @@ impl World {
 
                 if !(a < 0 || b < 0 || a >= self.n_chunks as i32 || b >= self.n_chunks as i32) {
                     let (a, b) = (a as usize, b as usize);
-                    self.chunks[a][b].lock().unwrap().being_keys.par_iter().for_each(|key| {
-                        let mut other = self.beings.get_mut(&key).unwrap();
-                        let self_pos = being.pos;
-                        let other_pos = other.value().pos;
-                        if dist_2d(self_pos, other_pos) < 2. * self.being_radius {
-                            other.pos =
-                                add_2d(other_pos, scale_2d(dir_from_theta(other.rotation), 2.));
-                        }
-                    });
+                    self.chunks[a][b]
+                        .lock()
+                        .unwrap()
+                        .being_keys
+                        .iter()
+                        .for_each(|other_key| {
+                            if !(*other_key == *key) {
+                                let mut other = self.beings.get_mut(&other_key).unwrap();
+                                let self_pos = being.pos;
+                                let other_pos = other.value().pos;
+                                if dist_2d(self_pos, other_pos) < 2. * self.being_radius {
+                                    other.pos = add_2d(
+                                        other_pos,
+                                        scale_2d(dir_from_theta(other.rotation), 2.),
+                                    );
+                                }
+                            }
+                        });
                 }
             }
         })
@@ -255,7 +276,7 @@ impl World {
                             let (fi, fj) = (i as f32, j as f32);
 
                             if dist_2d((fi, fj), (bi, bj)) <= self.being_radius {
-                                *shared_buffer[two_to_one((i, j))].lock().unwrap() = 10000000;
+                                *shared_buffer[two_to_one((i, j))].lock().unwrap() = 100000;
                             }
                         })
                 });
@@ -270,12 +291,11 @@ impl World {
     // fn pacwatch(&self, (pi, pj): (f32, f32), rad: f32) -> Vec<Vec<u32>> {
     //     let (pi, pj) = (pi as u32, pj as u32);
 
-
     // }
 }
 
 fn main() {
-    let mut world = World::new(22.5, 32);
+    let mut world = World::new(11.25, 64);
     world.add_being((50., 50.), 1.57, 10.);
     world.add_being((100., 50.), 1.57, 10.);
     world.add_being((150., 50.), 1.57, 10.);
@@ -296,7 +316,7 @@ fn main() {
     world.add_being((450., 670.), -1.57, 10.);
 
     let mut window = Window::new(
-        "Test - ESC to exit",
+        "samsarsa",
         W_SIZE,
         W_SIZE,
         WindowOptions::default(),
@@ -308,17 +328,19 @@ fn main() {
     let mut i = 0;
     window.limit_update_rate(Some(std::time::Duration::from_micros(0)));
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        i += 1;
-        if i % 100 == 0 {
-            println!("{}", i);
-        }
 
         world.move_beings();
-        // world.check_being_collision();
-        world.decide_being_pixels();
+        world.check_being_collision();
+        
+        if i % 1000 == 0 {
+            println!("{}", i);
+            world.decide_being_pixels();
+            std::thread::sleep(Duration::new(0, 1));
+            window
+                .update_with_buffer(&world.repr, W_SIZE, W_SIZE)
+                .unwrap();
+        }
+        i += 1;
 
-        window
-            .update_with_buffer(&world.repr, W_SIZE, W_SIZE)
-            .unwrap();
     }
 }
