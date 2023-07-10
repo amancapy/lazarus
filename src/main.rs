@@ -188,12 +188,10 @@ impl World {
             let new_pos = add_2d(curr_pos, scale_2d(direction, fatigue_speed));
 
 
-            let lef_border_tresspass = new_pos.1 - self.being_radius < 1.;
-            let rig_border_tresspass = new_pos.1 + self.being_radius >= self.worldsize - 1.;
-            let top_border_tresspass = new_pos.0 - self.being_radius < 1.;
-            let bot_border_tresspass = new_pos.0 + self.being_radius >= self.worldsize - 1.;
+            let ver_border_tresspass = new_pos.1 - self.being_radius < 1. || new_pos.1 + self.being_radius >= self.worldsize - 1.;
+            let hor_border_tresspass = new_pos.0 - self.being_radius < 1. || new_pos.0 + self.being_radius >= self.worldsize - 1.;
 
-            if !(lef_border_tresspass || rig_border_tresspass || top_border_tresspass || bot_border_tresspass){
+            if !(ver_border_tresspass || hor_border_tresspass){
                 being.pos = new_pos;
                 let curr_chunk = self.pos_to_chunk(curr_pos);
                 let new_chunk = self.pos_to_chunk(new_pos);
@@ -214,13 +212,13 @@ impl World {
 
             }
             
-            else if lef_border_tresspass || rig_border_tresspass {
+            else if ver_border_tresspass {
                 let new_pos = add_2d(new_pos, scale_2d(direction, -fatigue_speed));
                 being.pos = new_pos;
                 being.rotation *= -1.;
             }
 
-            else if top_border_tresspass || bot_border_tresspass {
+            else if hor_border_tresspass {
                 let new_pos = add_2d(new_pos, scale_2d(direction, -fatigue_speed));
                 being.pos = new_pos;
                 being.rotation *= -1.;
@@ -306,7 +304,7 @@ fn main() {
             .unwrap();
     let mut i = 0;
     loop {
-        if i % 1000 == 0 {
+        if i % 1 == 0 {
             {
                 if let Some(e) = window.next() {
                     world.beings.iter().for_each(|b| {
