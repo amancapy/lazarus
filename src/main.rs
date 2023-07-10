@@ -177,21 +177,23 @@ impl World {
     }
 
     pub fn move_beings(&mut self) {
-        let mut rdist = Uniform::new(-1., 1.);
+        let mut rdist = Uniform::new(-0.1, 0.1);
 
         self.beings.par_iter_mut().for_each_init(thread_rng,|rng, mut entry| {
             let being = entry.value_mut();
-            let direction = (being.rotation.cos(), being.rotation.sin());
+            let mut direction = (being.rotation.cos(), being.rotation.sin());
             let fatigue_speed = (10. - being.hunger) / 10. * self.being_speed;
 
             let curr_pos = being.pos.clone();
             let new_pos = add_2d(curr_pos, scale_2d(direction, fatigue_speed));
 
-            if !(new_pos.0 - self.being_radius < 1.
-                || new_pos.0 + self.being_radius >= self.worldsize - 1.
-                || new_pos.1 - self.being_radius < 1.
-                || new_pos.1 + self.being_radius >= self.worldsize - 1.)
-            {
+
+            let lef_border_tresspass = new_pos.1 - self.being_radius < 1.;
+            let rig_border_tresspass = new_pos.1 + self.being_radius >= self.worldsize - 1.;
+            let top_border_tresspass = new_pos.0 - self.being_radius < 1.;
+            let bot_border_tresspass = new_pos.0 + self.being_radius >= self.worldsize - 1.;
+
+            if !(lef_border_tresspass || rig_border_tresspass || top_border_tresspass || bot_border_tresspass){
                 being.pos = new_pos;
                 let curr_chunk = self.pos_to_chunk(curr_pos);
                 let new_chunk = self.pos_to_chunk(new_pos);
@@ -208,10 +210,21 @@ impl World {
                         .being_keys
                         .push(being.id);
                 }
-            } else {
+
+
+            }
+            
+            else if lef_border_tresspass || rig_border_tresspass {
                 let new_pos = add_2d(new_pos, scale_2d(direction, -fatigue_speed));
                 being.pos = new_pos;
-                being.rotation = being.rotation * -1. + rng.sample(rdist);
+                being.rotation *= -1.;
+            }
+
+            else if top_border_tresspass || bot_border_tresspass {
+                let new_pos = add_2d(new_pos, scale_2d(direction, -fatigue_speed));
+                being.pos = new_pos;
+                being.rotation *= -1.;
+                being.rotation += 3.14;
             }
         });
     }
@@ -222,13 +235,41 @@ impl World {
 
             let (bci, bcj) = self.pos_to_chunk(being.pos);
             // println!("{:?} {:?}, {}", being.pos, (bci, bcj), self.chunk_size);
-            [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)].into_par_iter().for_each(|(di, dj)|{
-                let (ni, nj) = (bci as isize + di, bcj as isize + dj);
-                if ni.min(nj) >= 0 && ni.max(nj) < self.n_chunks as isize{
+            for (di, dj) in [
+                (-1, -1),
+                (-1, 0),
+                (-1, 1),
+                (0, -1),
+                (0, 1),
+                (1, -1),
+                (1, 0),
+                (1, 1),
+            ] {
+                let (a, b) = (bci as i32 + di, bcj as i32 + dj);
 
+                if !(a < 0 || b < 0 || a >= self.n_chunks as i32 || b >= self.n_chunks as i32) {
+                    let (a, b) = (a as usize, b as usize);
+                    self.chunks[a][b]
+                        .lock()
+                        .unwrap()
+                        .being_keys
+                        .iter()
+                        .for_each(|other_key| {
+                            if !(*other_key == *key) {
+                                let mut other = self.beings.get_mut(&other_key).unwrap();
+                                let self_pos = being.pos;
+                                let other_pos = other.value().pos;
+                                if dist_2d(self_pos, other_pos) < 2. * self.being_radius {
+                                    other.pos = add_2d(
+                                        other_pos,
+                                        scale_2d(dir_from_theta(other.rotation), 2.),
+                                    );
+                                }
+                            }
+                        });
+                    }
                 }
-            });
-        })
+        });
     }
 
     // fn pacwatch(&self, (pi, pj): (f64, f64), rad: f64) -> Vec<Vec<u32>> {
@@ -239,7 +280,7 @@ impl World {
 
 fn main() {
     let mut world = World::new(45., 16);
-    world.add_being((50., 50.), 1.57, 10.);
+    world.add_being((W_SIZE as f64 / 2. + 200., W_SIZE as f64 / 2.), -2., 10.);
     // world.add_being((100., 50.), 1.57, 10.);
     // world.add_being((150., 50.), 1.57, 10.);
     // world.add_being((200., 50.), 1.57, 10.);
@@ -259,19 +300,19 @@ fn main() {
     // world.add_being((450., 670.), -1.57, 10.);
 
     let mut window: PistonWindow =
-        WindowSettings::new("Hello Piston!", [W_SIZE as u32, W_SIZE as u32])
+        WindowSettings::new("neuralang", [W_SIZE as u32, W_SIZE as u32])
             .exit_on_esc(true)
             .build()
             .unwrap();
     let mut i = 0;
     loop {
-        if i % 100 == 0 {
+        if i % 1000 == 0 {
             {
                 if let Some(e) = window.next() {
                     world.beings.iter().for_each(|b| {
                         window.draw_2d(&e, |c, g, device| {
-                            // clear([1.0; 4], g);
-                            rectangle([1., 0., 0., 1.], [b.pos.1, b.pos.0, 5., 5.], c.transform, g);
+                            // clear([0.; 4], g);
+                            rectangle([1., 0., 0., 1.], [b.pos.1, b.pos.0, 3., 3.], c.transform, g);
                         });
                     });
                 }
@@ -280,6 +321,6 @@ fn main() {
         i += 1;
         println!("{}", i);
         world.move_beings();
-        world.check_being_collision();
+        // world.check_being_collision();
     }
 }
