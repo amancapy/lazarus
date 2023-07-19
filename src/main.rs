@@ -119,10 +119,10 @@ impl Chunk {
     }
 
     pub fn check_collisions(&mut self) {
-        self.cells.iter_mut().for_each(|row| {
-            row.iter_mut().for_each(|c| {
-                for id1 in &c.ball_indexes {
-                    for id2 in &c.ball_indexes {
+        for i in 1..N_CHUNKS - 1 {
+            for j in 1..N_CHUNKS - 1 {
+                for id1 in &self.cells[i][j].ball_indexes {
+                    for id2 in &self.cells[i][j].ball_indexes {
                         if id1 != id2 {
                             let (a, b) = self.balls[*id1].pos;
                             let (c, d) = self.balls[*id2].pos;
@@ -135,8 +135,8 @@ impl Chunk {
                         }
                     }
                 }
-            })
-        })
+            }
+        }
     }
 }
 
@@ -145,11 +145,13 @@ fn main() {
     let n_chunks = 25;
     let mut world = Chunk::new(n_chunks);
 
-    world.add_ball(5., (3., 3.), 0.7853981633974483, 5.);
+    for i in 1..25000{world.add_ball(5., (3., 3.), 0.7853981633974483, 5.);}
 
 
     for i in 1..10000000_u64 {
+        if i % 1000 == 0 {println!("{}", i)}
         world.move_balls();
+        world.check_collisions();
     }
 
     println!("{:?}, {:?}", world.balls[0].pos, world.balls[0].chunk);
