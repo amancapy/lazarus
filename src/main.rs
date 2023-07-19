@@ -55,12 +55,33 @@ pub fn pos_to_chunk(pos: (f64, f64)) -> (usize, usize) {
     (i, j)
 }
 
-struct Ball {
+pub fn balls_collide (b1: &Ball, b2: &Ball) -> bool {
+    let rad_dist = dist_2d(b1.pos, b2.pos);
+    let (r1, r2) = (b1.radius, b2.radius);
+
+    rad_dist < r1 + r2
+
+}
+
+
+pub fn resolve_balls (b1: &mut Ball, b2: &mut Ball) {
+    let (i1, j1) = b1.pos;
+    let (i2, j2) = b2.pos;
+    let c1c2 = (i2 - i1, j2 - j1);
+    let half_dist = scale_2d(c1c2, 0.5);
+
+    b1.pos = add_2d((i1, j1), scale_2d(half_dist, -1.));
+    b2.pos = add_2d((i2, j2), half_dist);
+}
+
+
+pub struct Ball {
     radius: f64,
     pos: (f64, f64),
     rotation: f64,
     speed: f64,
-    chunk: (usize, usize)
+    chunk: (usize, usize),
+    id: usize
 }
 
 
@@ -88,7 +109,7 @@ impl Chunk {
 
     pub fn add_ball(&mut self, radius: f64, pos: (f64, f64), rotation: f64, speed: f64) {
         let (i, j) = pos_to_chunk(pos);
-        self.balls.push(Ball {radius: radius, pos: pos, rotation: rotation, speed: speed, chunk: (i, j)});
+        self.balls.push(Ball {radius: radius, pos: pos, rotation: rotation, speed: speed, chunk: (i, j), id: self.ball_id});
         self.cells[i][j].insert(self.ball_id);
         self.ball_id += 1;
     }
@@ -96,13 +117,23 @@ impl Chunk {
     
 
     pub fn move_balls(&mut self) {
+        let w = W_SIZE as f64;
         self.balls.iter_mut().for_each(|ball| {
             let move_vec = scale_2d(dir_from_theta(ball.rotation), ball.speed);
-            ball.pos = add_2d(ball.pos, move_vec);
+            let (ni, nj) = add_2d(ball.pos, move_vec);
 
-            let new_chunk = pos_to_chunk(ball.pos);
-            if !equal_idx(new_chunk, ball.chunk) {
-                ball.chunk = new_chunk;
+            if !(ni < 1. || nj < 1. || ni > w || nj > w) {
+                ball.pos = add_2d(ball.pos, move_vec);
+
+            }
+
+            let (ni, nj) = pos_to_chunk(ball.pos);
+            if !equal_idx((ni, nj), ball.chunk) {
+                let (oi, oj) = ball.chunk;
+                ball.chunk = (ni, nj);
+
+                self.cells[oi][oj].remove(&ball.id);
+                self.cells[ni][nj].insert(ball.id);
             }
         })
     }
@@ -111,13 +142,16 @@ impl Chunk {
         for i in 1..N_CELLS - 1 {
             for j in 1..N_CELLS - 1 {
                 for id1 in &self.cells[i][j] {
-                    let b1 = &self.balls[*id1];
-                    
+                    let mut b1 = &self.balls[*id1];
+
                     for (di, dj) in [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 0), (0, 1), (1, -1), (1, 0), (1, 1)] {
                         let (ni, nj) = ((i as isize + di) as usize, (j as isize + dj) as usize);
                         for id2 in &self.cells[ni][nj] {
                             if *id1 != *id2 {
-                                let b2 = &self.balls[*id2];
+                                let mut b2 = &self.balls[*id2];
+                                if balls_collide(b1, b2) {
+                                    // resolve_balls(b1, b2);
+                                }
                             }
                         }
                     }
@@ -125,20 +159,26 @@ impl Chunk {
             }
         }
     }
+
+    pub fn step(&mut self) {
+        self.move_balls();
+        self.check_collisions();
+    }
 }
 
 
 fn main() {
-    let n_chunks = 25;
-    let mut chunk = Chunk::new(n_chunks);
+    assert!(W_SIZE % N_CELLS == 0); 
+    let mut chunk = Chunk::new(N_CELLS);
+    let rdist = Uniform::new(0., W_SIZE as f64 - 10.);
+    let mut rng = thread_rng();
 
-    for i in 1..25000{chunk.add_ball(5., (3., 3.), 0.7853981633974483, 5.);}
+    for i in 1..10000{chunk.add_ball(5., (rng.sample(rdist), rng.sample(rdist)), 0.7853981633974483, 5.);}
 
 
     for i in 1..10000000_u64 {
-        if i % 1000 == 0 {println!("{}", i)}
-        chunk.move_balls();
-        chunk.check_collisions();
+        if i % 1 == 0 {println!("{}", i)}
+        chunk.step();
     }
 
     println!("{:?}, {:?}", chunk.balls[0].pos, chunk.balls[0].chunk);

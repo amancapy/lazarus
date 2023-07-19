@@ -109,7 +109,7 @@
 //                         .collect()
 //                 })
 //                 .collect(),
-            
+
 //             being_keys: Vec::new(),
 //             beings: DashMap::new(),
 //             foods: DashMap::new(),
@@ -152,7 +152,7 @@
 //     }
 
 //     pub fn add_being(&mut self, pos: (f64, f64), rotation: f64, health: f64) {
-        
+
 //         self.being_keys.push(self.beingkey);
 //         self.beings.insert(
 //             self.beingkey,
@@ -256,12 +256,9 @@
 //                             if dist < 2. * self.being_radius {
 //                                 let diff = (c - a, d - b);
 //                                 let dp = scale_2d(diff, 0.5);
-                                
-
 
 //                                 adjust_queue.insert(*k, dp);
 //                             }
-
 
 //                             // println!("{}, {},  {}, {}", a, b, c, d);
 //                         }
@@ -308,7 +305,7 @@
 //     loop {
 //         if false {
 //             {
-                
+
 //                 if let Some(e) = window.next() {
 //                     window.draw_2d(&e, |c, g, device| {
 //                         clear([0., 0., 0., 1.], g);
@@ -321,7 +318,6 @@
 //                         });
 //                     });
 
-                    
 //                 }
 //             }
 //         }
