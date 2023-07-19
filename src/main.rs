@@ -64,35 +64,35 @@ struct Ball {
 }
 
 
-struct Chunk {
+struct Cell {
     ball_indexes: HashSet<usize>
 }
 
-impl Chunk {
+impl Cell {
     pub fn new() -> Self {
-        Chunk { ball_indexes: HashSet::new() }
+        Cell { ball_indexes: HashSet::new() }
     }
 }
 
 
-struct World {
+struct Chunk {
     balls: Vec<Ball>,
-    chunks: Vec<Vec<Chunk>>,
-    chunk_size: usize,
+    cells: Vec<Vec<Cell>>,
+    cell_size: usize,
     ball_id: usize
 }
 
-impl World {
-    pub fn new(n_chunks: usize) -> Self {
-        assert!(W_SIZE % n_chunks == 0);
-        World { balls: 
+impl Chunk {
+    pub fn new(n_cells: usize) -> Self {
+        assert!(W_SIZE % n_cells == 0);
+        Chunk { balls: 
             vec![],
-            chunks: (0..n_chunks).into_iter().map(|_| {
-                (0..n_chunks).into_iter().map(|_| {
-                    Chunk::new()
+            cells: (0..n_cells).into_iter().map(|_| {
+                (0..n_cells).into_iter().map(|_| {
+                    Cell::new()
                 }).collect()
             }).collect(),
-            chunk_size: W_SIZE / n_chunks,
+            cell_size: W_SIZE / n_cells,
             ball_id: 0
          }
     }
@@ -100,7 +100,7 @@ impl World {
     pub fn add_ball(&mut self, radius: f64, pos: (f64, f64), rotation: f64, speed: f64) {
         let (i, j) = pos_to_chunk(pos);
         self.balls.push(Ball {radius: radius, pos: pos, rotation: rotation, speed: speed, chunk: (i, j)});
-        self.chunks[i][j].ball_indexes.insert(self.ball_id);
+        self.cells[i][j].ball_indexes.insert(self.ball_id);
         self.ball_id += 1;
     }
 
@@ -117,12 +117,33 @@ impl World {
             }
         })
     }
+
+    pub fn check_collisions(&mut self) {
+        self.cells.iter_mut().for_each(|row| {
+            row.iter_mut().for_each(|c| {
+                for id1 in &c.ball_indexes {
+                    for id2 in &c.ball_indexes {
+                        if id1 != id2 {
+                            let (a, b) = self.balls[*id1].pos;
+                            let (c, d) = self.balls[*id2].pos;
+
+                            let dist = dist_2d((a, b), (c, d));
+                            if dist < 2. * self.balls[*id1].radius {
+                                let diff = (c - a, d - b);
+                                let dp = scale_2d(diff, 0.5);
+                            }
+                        }
+                    }
+                }
+            })
+        })
+    }
 }
 
 
 fn main() {
     let n_chunks = 25;
-    let mut world = World::new(n_chunks);
+    let mut world = Chunk::new(n_chunks);
 
     world.add_ball(5., (3., 3.), 0.7853981633974483, 5.);
 
