@@ -9,8 +9,8 @@ use std::{
 
 
 const W_SIZE: usize = 1000;
-const N_CHUNKS: usize = 25;
-const CHUNK_SIZE: usize = W_SIZE / N_CHUNKS;
+const N_CELLS: usize = 25;
+const CHUNK_SIZE: usize = W_SIZE / N_CELLS;
 
 
 fn normalize_2d((i, j): (f64, f64)) -> (f64, f64) {
@@ -64,20 +64,9 @@ struct Ball {
 }
 
 
-struct Cell {
-    ball_indexes: HashSet<usize>
-}
-
-impl Cell {
-    pub fn new() -> Self {
-        Cell { ball_indexes: HashSet::new() }
-    }
-}
-
-
 struct Chunk {
     balls: Vec<Ball>,
-    cells: Vec<Vec<Cell>>,
+    cells: Vec<Vec<HashSet<usize>>>,
     cell_size: usize,
     ball_id: usize
 }
@@ -89,7 +78,7 @@ impl Chunk {
             vec![],
             cells: (0..n_cells).into_iter().map(|_| {
                 (0..n_cells).into_iter().map(|_| {
-                    Cell::new()
+                    HashSet::new()
                 }).collect()
             }).collect(),
             cell_size: W_SIZE / n_cells,
@@ -100,7 +89,7 @@ impl Chunk {
     pub fn add_ball(&mut self, radius: f64, pos: (f64, f64), rotation: f64, speed: f64) {
         let (i, j) = pos_to_chunk(pos);
         self.balls.push(Ball {radius: radius, pos: pos, rotation: rotation, speed: speed, chunk: (i, j)});
-        self.cells[i][j].ball_indexes.insert(self.ball_id);
+        self.cells[i][j].insert(self.ball_id);
         self.ball_id += 1;
     }
 
@@ -119,18 +108,16 @@ impl Chunk {
     }
 
     pub fn check_collisions(&mut self) {
-        for i in 1..N_CHUNKS - 1 {
-            for j in 1..N_CHUNKS - 1 {
-                for id1 in &self.cells[i][j].ball_indexes {
-                    for id2 in &self.cells[i][j].ball_indexes {
-                        if id1 != id2 {
-                            let (a, b) = self.balls[*id1].pos;
-                            let (c, d) = self.balls[*id2].pos;
-
-                            let dist = dist_2d((a, b), (c, d));
-                            if dist < 2. * self.balls[*id1].radius {
-                                let diff = (c - a, d - b);
-                                let dp = scale_2d(diff, 0.5);
+        for i in 1..N_CELLS - 1 {
+            for j in 1..N_CELLS - 1 {
+                for id1 in &self.cells[i][j] {
+                    let b1 = &self.balls[*id1];
+                    
+                    for (di, dj) in [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 0), (0, 1), (1, -1), (1, 0), (1, 1)] {
+                        let (ni, nj) = ((i as isize + di) as usize, (j as isize + dj) as usize);
+                        for id2 in &self.cells[ni][nj] {
+                            if *id1 != *id2 {
+                                let b2 = &self.balls[*id2];
                             }
                         }
                     }
@@ -143,16 +130,16 @@ impl Chunk {
 
 fn main() {
     let n_chunks = 25;
-    let mut world = Chunk::new(n_chunks);
+    let mut chunk = Chunk::new(n_chunks);
 
-    for i in 1..25000{world.add_ball(5., (3., 3.), 0.7853981633974483, 5.);}
+    for i in 1..25000{chunk.add_ball(5., (3., 3.), 0.7853981633974483, 5.);}
 
 
     for i in 1..10000000_u64 {
         if i % 1000 == 0 {println!("{}", i)}
-        world.move_balls();
-        world.check_collisions();
+        chunk.move_balls();
+        chunk.check_collisions();
     }
 
-    println!("{:?}, {:?}", world.balls[0].pos, world.balls[0].chunk);
+    println!("{:?}, {:?}", chunk.balls[0].pos, chunk.balls[0].chunk);
 }
