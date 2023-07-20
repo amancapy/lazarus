@@ -1,18 +1,61 @@
+use dashmap::{DashMap, DashSet};
+use piston_window::*;
 use rand::{distributions::Uniform, prelude::*};
-use rayon::{iter::plumbing, prelude::*};
+use rayon::prelude::*;
 use std::{
     borrow::BorrowMut,
-    collections::HashSet,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex},
     thread,
     time::*,
 };
 
-const W_SIZE: usize = 1000;
-const N_CELLS: usize = 200;
-const CHUNK_SIZE: usize = W_SIZE / N_CELLS;
-const N_THREADS: usize = 8;
+const W_SIZE: usize = 720;
 
+#[derive(Debug, PartialEq)]
+struct Being {
+    id: u32,
+
+    pos: (f64, f64),
+    rotation: f64,
+
+    health: f64,
+    hunger: f64,
+}
+
+#[derive(Debug)]
+struct Food {
+    id: u32,
+    pos: (f64, f64),
+    val: f64,
+}
+
+#[derive(Debug)]
+struct Chunk {
+    pos: (u32, u32),
+    being_keys: Vec<u32>,
+    food_keys: Vec<u32>,
+}
+
+#[derive(Debug)]
+struct World {
+    chunk_size: f64,
+    n_chunks: u32,
+    worldsize: f64,
+
+    chunks: Vec<Vec<Arc<Mutex<Chunk>>>>,
+
+    being_keys: Vec<u32>,
+    beings: DashMap<u32, Being>,
+    foods: DashMap<u32, Food>,
+
+    being_speed: f64,
+    being_radius: f64,
+
+    beingkey: u32,
+    foodkey: u32,
+
+    repr: Vec<u32>,
+}
 
 fn normalize_2d((i, j): (f64, f64)) -> (f64, f64) {
     let norm = (i.powi(2) + j.powi(2)).sqrt();
@@ -44,164 +87,263 @@ fn dir_from_theta(theta: f64) -> (f64, f64) {
     (theta.cos(), theta.sin())
 }
 
-fn equal_idx((a, b): (usize, usize), (c, d): (usize, usize)) -> bool {
-    a == c && b == d
-}
+impl World {
+    pub fn new(chunk_size: f64, n_chunks: u32) -> Self {
+        World {
+            chunk_size: chunk_size,
+            n_chunks: n_chunks,
+            worldsize: chunk_size * (n_chunks as f64),
 
-pub fn pos_to_chunk(pos: (f64, f64)) -> (usize, usize) {
-    let c = CHUNK_SIZE as f64;
-    let i = ((pos.0 - (pos.0 % c)) / c) as usize;
-    let j = ((pos.1 - (pos.1 % c)) / c) as usize;
-
-    (i, j)
-}
-
-pub fn balls_collide(b1: &Ball, b2: &Ball) -> bool {
-    let rad_dist = dist_2d(b1.pos, b2.pos);
-    let (r1, r2) = (b1.radius, b2.radius);
-
-    rad_dist < r1 + r2
-}
-
-pub fn resolve_balls(b1: &mut Ball, b2: &Ball) {
-    let (i1, j1) = b1.pos;
-    let (i2, j2) = b2.pos;
-    let c1c2 = (i2 - i1, j2 - j1);
-    let half_dist = scale_2d(c1c2, 0.5);
-
-    b1.pos = add_2d((i1, j1), scale_2d(half_dist, -1.));
-}
-
-pub struct Ball {
-    radius: f64,
-    pos: (f64, f64),
-    rotation: f64,
-    speed: f64,
-    chunk: (usize, usize),
-    id: usize,
-}
-
-
-struct Chunk {
-    balls: Vec<Ball>,
-    cells: Vec<Vec<HashSet<usize>>>,
-    cell_size: usize,
-    ball_id: usize,
-}
-
-impl Chunk {
-    pub fn new(n_cells: usize) -> Self {
-        assert!(W_SIZE % n_cells == 0);
-        Chunk {
-            balls: vec![],
-            cells: (0..n_cells)
-                .into_iter()
-                .map(|_| (0..n_cells).into_iter().map(|_| HashSet::new()).collect())
+            chunks: (0..n_chunks)
+                .into_par_iter()
+                .map(|i| {
+                    (0..n_chunks)
+                        .into_iter()
+                        .map(|j| {
+                            Arc::new(Mutex::new(Chunk {
+                                pos: (i, j),
+                                being_keys: vec![],
+                                food_keys: vec![],
+                            }))
+                        })
+                        .collect()
+                })
                 .collect(),
-            cell_size: W_SIZE / n_cells,
-            ball_id: 0,
+
+            being_keys: Vec::new(),
+            beings: DashMap::new(),
+            foods: DashMap::new(),
+
+            being_speed: 0.5,
+            being_radius: 1.,
+
+            beingkey: 0,
+            foodkey: 0,
+
+            repr: vec![],
         }
     }
 
-    pub fn add_ball(&mut self, radius: f64, pos: (f64, f64), rotation: f64, speed: f64) {
-        let (i, j) = pos_to_chunk(pos);
-        self.balls.push(Ball {
-            radius: radius,
-            pos: pos,
-            rotation: rotation,
-            speed: speed,
-            chunk: (i, j),
-            id: self.ball_id,
+    fn pos_to_chunk(&self, pos: (f64, f64)) -> (usize, usize) {
+        let i = ((pos.0 - (pos.0 % self.chunk_size)) / self.chunk_size) as usize;
+        let j = ((pos.1 - (pos.1 % self.chunk_size)) / self.chunk_size) as usize;
+
+        (i, j)
+    }
+
+    pub fn add_food(&mut self, pos: (f64, f64), val: f64, age: f64) {
+        self.foods.insert(
+            self.foodkey,
+            Food {
+                id: self.foodkey,
+                pos: pos,
+                val: val,
+            },
+        );
+
+        let (i, j) = self.pos_to_chunk(pos);
+        self.chunks[i][j]
+            .lock()
+            .unwrap()
+            .food_keys
+            .push(self.foodkey);
+
+        self.foodkey += 1;
+    }
+
+    pub fn add_being(&mut self, pos: (f64, f64), rotation: f64, health: f64) {
+        self.being_keys.push(self.beingkey);
+        self.beings.insert(
+            self.beingkey,
+            Being {
+                id: self.beingkey,
+                pos: pos,
+                rotation: rotation,
+                health: 10.,
+                hunger: 0.,
+            },
+        );
+
+        let (i, j) = self.pos_to_chunk(pos);
+        self.chunks[i][j]
+            .lock()
+            .unwrap()
+            .being_keys
+            .push(self.beingkey);
+
+        self.beingkey += 1;
+    }
+
+    pub fn decay_food(mut self) {
+        self.foods.par_iter_mut().for_each(|mut entry| {
+            entry.value_mut().val *= 0.9;
         });
-        self.cells[i][j].insert(self.ball_id);
-        self.ball_id += 1;
+
+        self.foods.retain(|_, food| food.val > 0.05);
     }
 
-    pub fn move_balls(&mut self) {
-        let w = W_SIZE as f64;
-        self.balls.iter_mut().for_each(|ball| {
-            let move_vec = scale_2d(dir_from_theta(ball.rotation), ball.speed);
-            let (ni, nj) = add_2d(ball.pos, move_vec);
+    pub fn move_beings(&mut self) {
+        let mut rdist = Uniform::new(-0.1, 0.1);
 
-            if !(ni < 1. || nj < 1. || ni > w || nj > w) {
-                ball.pos = add_2d(ball.pos, move_vec);
-            }
+        self.beings
+            .par_iter_mut()
+            .for_each_init(thread_rng, |rng, mut entry| {
+                let being = entry.value_mut();
+                let mut direction = (being.rotation.cos(), being.rotation.sin());
+                let fatigue_speed = (10. - being.hunger) / 10. * self.being_speed;
 
-            let (ni, nj) = pos_to_chunk(ball.pos);
-            if !equal_idx((ni, nj), ball.chunk) {
-                let (oi, oj) = ball.chunk;
-                ball.chunk = (ni, nj);
+                let curr_pos = being.pos.clone();
+                let new_pos = add_2d(curr_pos, scale_2d(direction, fatigue_speed));
 
-                self.cells[oi][oj].remove(&ball.id);
-                self.cells[ni][nj].insert(ball.id);
-            }
-        })
-    }
+                let ver_border_tresspass = new_pos.1 - self.being_radius < 1.
+                    || new_pos.1 + self.being_radius >= self.worldsize - 1.;
+                let hor_border_tresspass = new_pos.0 - self.being_radius < 1.
+                    || new_pos.0 + self.being_radius >= self.worldsize - 1.;
 
-    pub fn check_collisions(&mut self) {
-        let adjust_queue: HashSet<(usize, (f64, f64))> = HashSet::new();
-        for i in 1..N_CELLS - 1 {
-            for j in 1..N_CELLS - 1 {
-                for id1 in &self.cells[i][j] {
-                    for (di, dj) in [
-                        (-1, -1),
-                        (-1, 0),
-                        (-1, 1),
-                        (0, -1),
-                        (0, 0),
-                        (0, 1),
-                        (1, -1),
-                        (1, 0),
-                        (1, 1),
-                    ] {
-                        let (ni, nj) = ((i as isize + di) as usize, (j as isize + dj) as usize);
-                        for id2 in &self.cells[ni][nj] {
-                            if *id1 != *id2 {
-                                // let mut b1 = &mut self.balls[*id1];
-                                // let b2 = &self.balls[*id2];
-                                // if balls_collide(&b1, &b2) {
-                                //     let (i1, j1) = b1.pos;
-                                //     let (i2, j2) = b2.pos;
-                                //     let c1c2 = (i2 - i1, j2 - j1);
-                                //     let half_dist = scale_2d(c1c2, 0.5);
+                if !(ver_border_tresspass || hor_border_tresspass) {
+                    being.pos = new_pos;
+                    let curr_chunk = self.pos_to_chunk(curr_pos);
+                    let new_chunk = self.pos_to_chunk(new_pos);
 
-                                //     b1.pos = add_2d((i1, j1), scale_2d(half_dist, -1.));
-                                // }
-                            }
-                        }
+                    if !(curr_chunk == new_chunk) {
+                        self.chunks[curr_chunk.0][curr_chunk.1]
+                            .lock()
+                            .unwrap()
+                            .being_keys
+                            .retain(|x| x != &being.id);
+                        self.chunks[new_chunk.0][new_chunk.1]
+                            .lock()
+                            .unwrap()
+                            .being_keys
+                            .push(being.id);
                     }
+                } else if ver_border_tresspass {
+                    being.rotation *= -1.;
+                    let new_direction = (being.rotation.cos(), being.rotation.sin());
+                    let new_pos = add_2d(new_pos, scale_2d(new_direction, fatigue_speed));
+                    being.pos = new_pos;
+                } else if hor_border_tresspass {
+                    being.rotation *= -1.;
+                    being.rotation += 3.14;
+                    let new_direction = (being.rotation.cos(), being.rotation.sin());
+                    let new_pos = add_2d(new_pos, scale_2d(new_direction, fatigue_speed));
+                    being.pos = new_pos;
                 }
-            }
-        }
+            });
     }
 
-    pub fn step(&mut self) {
-        self.move_balls();
-        self.check_collisions();
+    pub fn check_being_collision(&mut self) {
+        let mut bs = self.being_keys.clone();
+        let mut adjust_queue: DashMap<u32, (f64, f64)> = DashMap::new();
+
+        bs.par_iter().for_each(|k| {
+            let being = self.beings.get(k).unwrap();
+            let (ci, cj) = self.pos_to_chunk(being.value().pos);
+
+            [
+                (-1, -1),
+                (-1, 0),
+                (-1, 1),
+                (0, -1),
+                (0, 1),
+                (1, -1),
+                (1, 0),
+                (1, 1),
+            ]
+            .into_par_iter()
+            .for_each(|(di, dj)| {
+                let (nci, ncj) = (ci as isize + di, cj as isize + dj);
+
+                if !(nci.min(ncj) < 0 || nci.max(ncj) as u32 >= self.n_chunks) {
+                    let (nci, ncj) = (nci as usize, ncj as usize);
+
+                    self.chunks[nci][ncj]
+                        .lock()
+                        .unwrap()
+                        .being_keys
+                        .iter()
+                        .for_each(|nk| {
+                            if *nk != *k {
+                                let (a, b) = being.pos;
+                                let (c, d) = self.beings.get(nk).unwrap().pos;
+
+                                let dist = dist_2d((a, b), (c, d));
+                                if dist < 2. * self.being_radius {
+                                    let diff = (c - a, d - b);
+                                    let dp = scale_2d(diff, 0.5);
+
+                                    adjust_queue.insert(*k, dp);
+                                }
+
+                                // println!("{}, {},  {}, {}", a, b, c, d);
+                            }
+                        })
+                }
+            });
+        });
+
+        adjust_queue.into_par_iter().for_each(|(k, v)| {
+            let pos = self.beings.get(&k).unwrap().pos;
+            let new_pos = add_2d(pos, scale_2d(v, -0.5));
+
+            if !(new_pos.0.min(new_pos.1) - self.being_radius < 1.
+                || new_pos.0.max(new_pos.1) + self.being_radius > self.worldsize - 1.)
+            {
+                self.beings.get_mut(&k).unwrap().pos = new_pos;
+            }
+        });
     }
+
+    // fn pacwatch(&self, (pi, pj): (f64, f64), rad: f64) -> Vec<Vec<u32>> {
+    //     let (pi, pj) = (pi as u32, pj as u32);
+
+    // }
 }
 
 fn main() {
-    assert!(W_SIZE % N_CELLS == 0);
-    let mut chunk = Chunk::new(N_CELLS);
-    let rdist = Uniform::new(0., W_SIZE as f64 - 10.);
+    let mut world = World::new(18., 40);
     let mut rng = thread_rng();
-
-    for i in 1..1000 {
-        chunk.add_ball(
-            5.,
+    let rdist = Uniform::new(1., W_SIZE as f64 - 1.);
+    let rotdist = Uniform::new(-3.14, 3.14);
+    for i in (0..10000) {
+        world.add_being(
             (rng.sample(rdist), rng.sample(rdist)),
-            rng.sample(rdist),
-            5.,
+            rng.sample(rotdist),
+            10.,
         );
     }
 
-    for i in 1..10000000_u64 {
-        if i % 60 == 0 {
-            println!("{}", i)
-        }
-        chunk.step();
-    }
+    let mut window: PistonWindow = WindowSettings::new("neuralang", [W_SIZE as u32, W_SIZE as u32])
+        .exit_on_esc(true)
+        .build()
+        .unwrap();
+    let mut i = 0;
+    let r = world.being_radius;
+    loop {
+        if true {
+            {
+                if let Some(e) = window.next() {
+                    window.draw_2d(&e, |c, g, device| {
+                        clear([0., 0., 0., 1.], g);
+                    });
 
-    println!("{:?}, {:?}", chunk.balls[0].pos, chunk.balls[0].chunk);
+                    world.beings.iter().for_each(|b| {
+                        window.draw_2d(&e, |c, g, device| {
+                            ellipse(
+                                [1., 0., 0., 1.],
+                                [b.pos.1, b.pos.0, 2. * r, 2. * r],
+                                c.transform,
+                                g,
+                            );
+                        });
+                    });
+                }
+            }
+        }
+        i += 1;
+        println!("{}", i);
+
+        world.move_beings();
+        world.check_being_collision();
+    }
 }
