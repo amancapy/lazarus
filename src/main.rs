@@ -10,7 +10,7 @@ use std::{
 };
 
 const W_SIZE: usize = 1000;
-const N_CELLS: usize = 200;
+const N_CELLS: usize = 50;
 const CHUNK_SIZE: usize = W_SIZE / N_CELLS;
 
 fn normalize_2d((i, j): (f64, f64)) -> (f64, f64) {
@@ -120,10 +120,11 @@ impl Chunk {
         self.ball_id += 1;
     }
 
-    pub fn move_balls(&mut self) {
-        let w = W_SIZE as f64;
+    pub fn move_balls(&mut self, substeps: usize) {
+        let s = substeps as f64;
+       for _ in 0..substeps{let w = W_SIZE as f64;
         self.balls.iter_mut().for_each(|ball| {
-            let move_vec = scale_2d(dir_from_theta(ball.rotation), ball.speed);
+            let move_vec = scale_2d(dir_from_theta(ball.rotation), ball.speed / s);
             let (newi, newj) = add_2d(ball.pos, move_vec);
 
             let r = ball.radius;
@@ -139,7 +140,7 @@ impl Chunk {
                 self.cells[oi][oj].remove(&ball.id);
                 self.cells[ni][nj].insert(ball.id);
             }
-        })
+        })}
     }
 
     pub fn check_collisions(&mut self) {
@@ -184,9 +185,9 @@ impl Chunk {
         }
     }
 
-    pub fn step(&mut self) {
-        self.move_balls();
-        self.check_collisions();
+    pub fn step(&mut self, substeps: usize) {
+        for _ in 0..substeps{self.move_balls(substeps);
+        self.check_collisions();}
     }
 }
 
@@ -202,7 +203,7 @@ fn main() {
                 let rdist = Uniform::new(100., (W_SIZE as f64) - 100.);
                 let mut rng = thread_rng();
 
-                for i in 1..5000 {
+                for i in 1..2000 {
                     chunk.add_ball(
                         5.,
                         (rng.sample(rdist), rng.sample(rdist)),
@@ -215,7 +216,7 @@ fn main() {
                     if i % 60 == 0 {
                         println!("{}", i)
                     }
-                    chunk.step();
+                    chunk.step(1);
                 }
             })
         })
