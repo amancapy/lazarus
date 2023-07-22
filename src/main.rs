@@ -55,9 +55,9 @@ pub fn pos_to_chunk(pos: (f64, f64)) -> (usize, usize) {
     (i, j)
 }
 
-pub fn oob((i, j): (f64, f64)) -> bool {
+pub fn oob((i, j): (f64, f64), r: f64) -> bool {
     let w = W_SIZE as f64;
-    i < 0. || j < 0. || i > w || j > w
+    i - r < 0. || j - r < 0. || i + r > w || j + r > w
 }
 
 pub fn balls_collide(b1: &Being, b2: &Being) -> bool {
@@ -67,13 +67,17 @@ pub fn balls_collide(b1: &Being, b2: &Being) -> bool {
     centre_dist < r1 + r2
 }
 
-pub fn resolve_balls(b1: &mut Being, b2: &Being) {
-    let (i1, j1) = b1.pos;
-    let (i2, j2) = b2.pos;
-    let c1c2 = (i2 - i1, j2 - j1);
-    let half_dist = scale_2d(c1c2, 0.5);
+pub fn obstruct_collide(b: &Being, o: &Obstruct) -> bool {
+    let centre_dist = dist_2d(b.pos, o.pos);
+    let (r1, r2) = (b.radius, o.radius);
+    centre_dist < r1 + r2
+}
 
-    b1.pos = add_2d((i1, j1), scale_2d(half_dist, -1.));
+pub struct Obstruct {
+    radius: f64,
+    pos: (f64, f64),
+    age: f64,
+    id: usize,
 }
 
 pub struct Being {
@@ -87,9 +91,10 @@ pub struct Being {
 
 struct Chunk {
     balls: Vec<Being>,
-    cells: Vec<Vec<HashSet<usize>>>,
-    cell_size: usize,
+    obstructs: Vec<Obstruct>,
+    cells: Vec<Vec<(HashSet<usize>, HashSet<usize>)>>,
     ball_id: usize,
+    ob_id: usize,
 }
 
 impl Chunk {
@@ -97,12 +102,18 @@ impl Chunk {
         assert!(W_SIZE % n_cells == 0);
         Chunk {
             balls: vec![],
+            obstructs: vec![],
             cells: (0..n_cells)
                 .into_iter()
-                .map(|_| (0..n_cells).into_iter().map(|_| HashSet::new()).collect())
+                .map(|_| {
+                    (0..n_cells)
+                        .into_iter()
+                        .map(|_| (HashSet::new(), HashSet::new()))
+                        .collect()
+                })
                 .collect(),
-            cell_size: W_SIZE / n_cells,
             ball_id: 0,
+            ob_id: 0,
         }
     }
 
@@ -116,37 +127,46 @@ impl Chunk {
             chunk: (i, j),
             id: self.ball_id,
         });
-        self.cells[i][j].insert(self.ball_id);
+        self.cells[i][j].0.insert(self.ball_id);
         self.ball_id += 1;
+    }
+
+    pub fn add_obstruct(&mut self, pos: (f64, f64)) {
+        let (i, j) = pos_to_chunk(pos);
+        self.obstructs.push(Obstruct {
+            radius: 4.,
+            pos: pos,
+            age: 5.,
+            id: self.ob_id,
+        });
+        self.cells[i][j].1.insert(self.ob_id);
+        self.ob_id += 1;
     }
 
     pub fn move_balls(&mut self, substeps: usize) {
         let s = substeps as f64;
-       for _ in 0..substeps{let w = W_SIZE as f64;
-        self.balls.iter_mut().for_each(|ball| {
-            let move_vec = scale_2d(dir_from_theta(ball.rotation), ball.speed / s);
-            let (newi, newj) = add_2d(ball.pos, move_vec);
+        for _ in 0..substeps {
+            let w = W_SIZE as f64;
+            self.balls.iter_mut().for_each(|ball| {
+                let move_vec = scale_2d(dir_from_theta(ball.rotation), ball.speed / s);
+                let (newi, newj) = add_2d(ball.pos, move_vec);
 
-            let r = ball.radius;
-            if !oob((newi, newj)) {
-                ball.pos = add_2d(ball.pos, move_vec);
-            }
+                let r = ball.radius;
 
-            let (ni, nj) = pos_to_chunk(ball.pos);
-            if !same_index((ni, nj), ball.chunk) {
-                let (oi, oj) = ball.chunk;
-                ball.chunk = (ni, nj);
 
-                self.cells[oi][oj].remove(&ball.id);
-                self.cells[ni][nj].insert(ball.id);
-            }
-        })}
+                if !oob((newi, newj), r) {
+                    ball.pos = add_2d(ball.pos, move_vec);
+                }
+
+                let (ni, nj) = pos_to_chunk(ball.pos);
+            })
+        }
     }
 
     pub fn check_collisions(&mut self) {
         for i in 0..N_CELLS {
             for j in 0..N_CELLS {
-                for id1 in &self.cells[i][j] {
+                for id1 in &self.cells[i][j].0 {
                     for (di, dj) in [
                         (-1, -1),
                         (-1, 0),
@@ -162,20 +182,36 @@ impl Chunk {
                         let w = N_CELLS as isize;
                         if !(ni < 0 || ni >= w || nj < 0 || nj >= w) {
                             let (ni, nj) = (ni as usize, nj as usize);
-                            for id2 in &self.cells[ni][nj] {
+                            for id2 in &self.cells[ni][nj].0 {
                                 if *id1 != *id2 {
-                                    let (mut b1, mut b2) = self.balls.get2_mut(*id1, *id2);
+                                    let (b1, b2) = self.balls.get2_mut(*id1, *id2);
                                     if balls_collide(&b1.as_ref().unwrap(), &b2.as_ref().unwrap()) {
                                         let (i1, j1) = &b1.as_ref().unwrap().pos;
                                         let (i2, j2) = &b2.unwrap().pos;
                                         let c1c2 = (i2 - i1, j2 - j1);
-                                        let half_dist = scale_2d(c1c2, 0.5);
+                                        let half_dist = scale_2d(c1c2, -0.5);
 
-                                        let new_pos = add_2d((*i1, *j1), scale_2d(half_dist, -1.));
-                                        if !oob(new_pos) {
+                                        let new_pos = add_2d((*i1, *j1), half_dist);
+                                        if !oob(new_pos, b1.as_ref().unwrap().radius) {
                                             b1.unwrap().pos.0 = new_pos.0;
                                         }
                                     }
+                                }
+                            }
+
+                            for ob_id in &self.cells[ni][nj].1 {
+                                let b = self.balls.get_mut(*id1);
+                                let o = self.obstructs.get_mut(*ob_id);
+                                if obstruct_collide(&b.as_ref().unwrap(), &o.as_ref().unwrap()) {
+                                    let (i1, j1) = &b.as_ref().unwrap().pos;
+                                    let (i2, j2) = &o.unwrap().pos;
+                                    let c1c2 = (i2 - i1, j2 - j1);
+                                    let half_dist = scale_2d(c1c2, 0.5);
+
+                                    let new_pos = add_2d((*i1, *j1), scale_2d(half_dist, -1.));
+                                        if !oob(new_pos, b.as_ref().unwrap().radius) {
+                                            b.unwrap().pos.0 = new_pos.0;
+                                        }
                                 }
                             }
                         }
@@ -185,9 +221,27 @@ impl Chunk {
         }
     }
 
+    pub fn update_cells(&mut self) {
+        for b in &mut self.balls {
+            let (bi, bj) = b.pos;
+            let (oi, oj) = b.chunk;
+            let (i, j) = pos_to_chunk((bi, bj));
+
+            if !same_index((oi, oj), (i, j)) {
+                b.chunk = (i, j);
+
+                self.cells[oi][oj].0.remove(&b.id);
+                self.cells[i][j].0.insert(b.id);
+            }
+        }
+    }
+
     pub fn step(&mut self, substeps: usize) {
-        for _ in 0..substeps{self.move_balls(substeps);
-        self.check_collisions();}
+        for _ in 0..substeps {
+            self.move_balls(substeps);
+            self.check_collisions();
+            self.update_cells();
+        }
     }
 }
 
@@ -203,13 +257,18 @@ fn main() {
                 let rdist = Uniform::new(100., (W_SIZE as f64) - 100.);
                 let mut rng = thread_rng();
 
-                for i in 1..2000 {
+                for i in 1..2500 {
                     chunk.add_ball(
                         5.,
                         (rng.sample(rdist), rng.sample(rdist)),
                         rng.sample(rdist),
                         50.,
                     );
+                }
+
+                for i in 1..2500 {
+                    chunk.add_obstruct(
+                        (rng.sample(rdist), rng.sample(rdist)));
                 }
 
                 for i in 1..10000000_u64 {
