@@ -1,9 +1,11 @@
+use std::borrow::BorrowMut;
+
 use rand::{distributions::Uniform, prelude::*};
 use rayon::prelude::*;
 use splitmut::SplitMut;
 
 const W_SIZE: usize = 1000;
-const N_CELLS: usize = 200;
+const N_CELLS: usize = 250;
 const WORLD_SIZE: usize = W_SIZE / N_CELLS;
 
 fn add_2d((i, j): (f64, f64), (k, l): (f64, f64)) -> (f64, f64) {
@@ -42,9 +44,20 @@ pub fn pos_to_cell(pos: (f64, f64)) -> (usize, usize) {
     (i, j)
 }
 
-pub fn oob((i, j): (f64, f64), r: f64) -> bool {
+
+pub fn ver_border_trespass(i: f64, r: f64) -> bool {
     let w = W_SIZE as f64;
-    i - r < 0. || j - r < 0. || i + r > w || j + r > w
+    i - r < 0. || i + r > w
+}
+
+pub fn hor_border_trespass(j: f64, r: f64) -> bool {
+    let w = W_SIZE as f64;
+    j - r < 0. || j + r > w
+}
+
+
+pub fn oob((i, j): (f64, f64), r: f64) -> bool {
+    ver_border_trespass(i, r) || hor_border_trespass(j, r)
 }
 
 pub fn balls_collide(b1: &Being, b2: &Being) -> bool {
@@ -181,9 +194,32 @@ impl World {
                                         let half_dist = scale_2d(c1c2, -0.5);
 
                                         let new_pos = add_2d((i1, j1), half_dist);
-                                        if !oob(new_pos, b1_ref.radius) {
-                                            b1.unwrap().pos.0 = new_pos.0;
+
+                                        let r = b1_ref.radius;
+
+                                        let b1 = b1.unwrap();
+                                        if hor_border_trespass(new_pos.0, r) {
+                                            b1.rotation *= -1.;
+                                            let new_dir = dir_from_theta(b1.rotation);
+                                            let new_pos = add_2d((i1, j1), new_dir);
+
+                                            println!("{}", oob(new_pos, b1.rotation));
+                                            b1.pos = new_pos;
+
                                         }
+
+                                        if ver_border_trespass(new_pos.1, r) {
+                                            b1.rotation *= -1.;
+                                            b1.rotation += 3.1415;
+                                            let new_dir = dir_from_theta(b1.rotation);
+                                            let new_pos = add_2d((i1, j1), new_dir);
+                                            b1.pos = new_pos;
+                                        }
+
+                                        else {
+                                            b1.pos = new_pos;
+                                        }
+                                        
                                     }
                                 }
                             }
@@ -247,7 +283,7 @@ fn main() {
     let rdist = Uniform::new(1., (W_SIZE as f64) - 1.);
     let mut rng = thread_rng();
 
-    for i in 1..20000 {
+    for i in 1..10000 {
         world.add_ball(
             5.,
             (rng.sample(rdist), rng.sample(rdist)),
@@ -256,9 +292,9 @@ fn main() {
         );
     }
 
-    // for i in 1..10000 {
-    //     world.add_obstruct((rng.sample(rdist), rng.sample(rdist)));
-    // }
+    for i in 1..10000 {
+        world.add_obstruct((rng.sample(rdist), rng.sample(rdist)));
+    }
 
     for i in 1..10000000_usize {
         if i % 60 == 0 {
