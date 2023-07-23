@@ -1,23 +1,10 @@
 use rand::{distributions::Uniform, prelude::*};
-use rayon::{iter::plumbing, prelude::*};
-use splitmut::{SplitMut, SplitMutError};
-use std::{
-    borrow::BorrowMut,
-    collections::HashSet,
-    sync::{Arc, Mutex, RwLock},
-    thread::{self, JoinHandle},
-    time::*,
-};
+use rayon::prelude::*;
+use splitmut::SplitMut;
 
 const W_SIZE: usize = 1000;
-const N_CELLS: usize = 50;
-const CHUNK_SIZE: usize = W_SIZE / N_CELLS;
-
-fn normalize_2d((i, j): (f64, f64)) -> (f64, f64) {
-    let norm = (i.powi(2) + j.powi(2)).sqrt();
-
-    (i / norm, j / norm)
-}
+const N_CELLS: usize = 200;
+const WORLD_SIZE: usize = W_SIZE / N_CELLS;
 
 fn add_2d((i, j): (f64, f64), (k, l): (f64, f64)) -> (f64, f64) {
     (i + k, j + l)
@@ -36,7 +23,7 @@ fn one_to_two(ij: usize) -> (usize, usize) {
 }
 
 fn two_to_one((i, j): (usize, usize)) -> usize {
-    i * W_SIZE + j
+    i * N_CELLS + j
 }
 
 fn dir_from_theta(theta: f64) -> (f64, f64) {
@@ -47,8 +34,8 @@ fn same_index((a, b): (usize, usize), (c, d): (usize, usize)) -> bool {
     a == c && b == d
 }
 
-pub fn pos_to_chunk(pos: (f64, f64)) -> (usize, usize) {
-    let c = CHUNK_SIZE as f64;
+pub fn pos_to_cell(pos: (f64, f64)) -> (usize, usize) {
+    let c = WORLD_SIZE as f64;
     let i = ((pos.0 - (pos.0 % c)) / c) as usize;
     let j = ((pos.1 - (pos.1 % c)) / c) as usize;
 
@@ -85,32 +72,26 @@ pub struct Being {
     pos: (f64, f64),
     rotation: f64,
     speed: f64,
-    chunk: (usize, usize),
+    world: (usize, usize),
     id: usize,
 }
 
-struct Chunk {
+struct World {
     balls: Vec<Being>,
     obstructs: Vec<Obstruct>,
-    cells: Vec<Vec<(HashSet<usize>, HashSet<usize>)>>,
+    cells: Vec<(Vec<usize>, Vec<usize>)>,
     ball_id: usize,
     ob_id: usize,
 }
 
-impl Chunk {
+impl World {
     pub fn new(n_cells: usize) -> Self {
         assert!(W_SIZE % n_cells == 0);
-        Chunk {
+        World {
             balls: vec![],
             obstructs: vec![],
-            cells: (0..n_cells)
-                .into_iter()
-                .map(|_| {
-                    (0..n_cells)
-                        .into_iter()
-                        .map(|_| (HashSet::new(), HashSet::new()))
-                        .collect()
-                })
+            cells: (0..n_cells.pow(2))
+                .map(|_| (Vec::new(), Vec::new()))
                 .collect(),
             ball_id: 0,
             ob_id: 0,
@@ -118,28 +99,31 @@ impl Chunk {
     }
 
     pub fn add_ball(&mut self, radius: f64, pos: (f64, f64), rotation: f64, speed: f64) {
-        let (i, j) = pos_to_chunk(pos);
+        let (i, j) = pos_to_cell(pos);
         self.balls.push(Being {
             radius: radius,
             pos: pos,
             rotation: rotation,
             speed: speed,
-            chunk: (i, j),
+            world: (i, j),
             id: self.ball_id,
         });
-        self.cells[i][j].0.insert(self.ball_id);
+        let ij = two_to_one((i, j));
+        self.cells[ij].0.push(self.ball_id);
         self.ball_id += 1;
     }
 
     pub fn add_obstruct(&mut self, pos: (f64, f64)) {
-        let (i, j) = pos_to_chunk(pos);
+        let (i, j) = pos_to_cell(pos);
         self.obstructs.push(Obstruct {
-            radius: 4.,
+            radius: 3.,
             pos: pos,
             age: 5.,
             id: self.ob_id,
         });
-        self.cells[i][j].1.insert(self.ob_id);
+
+        let ij = two_to_one((i, j));
+        self.cells[ij].1.push(self.ob_id);
         self.ob_id += 1;
     }
 
@@ -153,20 +137,19 @@ impl Chunk {
 
                 let r = ball.radius;
 
-
                 if !oob((newi, newj), r) {
                     ball.pos = add_2d(ball.pos, move_vec);
                 }
-
-                let (ni, nj) = pos_to_chunk(ball.pos);
-            })
+            });
         }
     }
 
-    pub fn check_collisions(&mut self) {
+    pub fn check_collisions(&mut self, timestep: usize) {
         for i in 0..N_CELLS {
             for j in 0..N_CELLS {
-                for id1 in &self.cells[i][j].0 {
+                let ij = two_to_one((i, j));
+                for id1 in &self.cells[ij].0 {
+                    let b1 = self.balls.get1_mut(*id1);
                     for (di, dj) in [
                         (-1, -1),
                         (-1, 0),
@@ -182,36 +165,46 @@ impl Chunk {
                         let w = N_CELLS as isize;
                         if !(ni < 0 || ni >= w || nj < 0 || nj >= w) {
                             let (ni, nj) = (ni as usize, nj as usize);
-                            for id2 in &self.cells[ni][nj].0 {
-                                if *id1 != *id2 {
+                            let nij = two_to_one((ni, nj));
+
+                            for id2 in &self.cells[nij].0 {
+                                if !(*id1 == *id2) {
                                     let (b1, b2) = self.balls.get2_mut(*id1, *id2);
-                                    if balls_collide(&b1.as_ref().unwrap(), &b2.as_ref().unwrap()) {
-                                        let (i1, j1) = &b1.as_ref().unwrap().pos;
-                                        let (i2, j2) = &b2.unwrap().pos;
+
+                                    let b1_ref = b1.as_ref().unwrap();
+                                    let b2_ref = b2.as_ref().unwrap();
+
+                                    if balls_collide(b1_ref, b2_ref) && b1_ref.id != b2_ref.id {
+                                        let (i1, j1) = b1_ref.pos;
+                                        let (i2, j2) = b2.unwrap().pos;
                                         let c1c2 = (i2 - i1, j2 - j1);
                                         let half_dist = scale_2d(c1c2, -0.5);
 
-                                        let new_pos = add_2d((*i1, *j1), half_dist);
-                                        if !oob(new_pos, b1.as_ref().unwrap().radius) {
+                                        let new_pos = add_2d((i1, j1), half_dist);
+                                        if !oob(new_pos, b1_ref.radius) {
                                             b1.unwrap().pos.0 = new_pos.0;
                                         }
                                     }
                                 }
                             }
 
-                            for ob_id in &self.cells[ni][nj].1 {
+                            for ob_id in &self.cells[nij].1 {
                                 let b = self.balls.get_mut(*id1);
                                 let o = self.obstructs.get_mut(*ob_id);
-                                if obstruct_collide(&b.as_ref().unwrap(), &o.as_ref().unwrap()) {
-                                    let (i1, j1) = &b.as_ref().unwrap().pos;
-                                    let (i2, j2) = &o.unwrap().pos;
-                                    let c1c2 = (i2 - i1, j2 - j1);
-                                    let half_dist = scale_2d(c1c2, 0.5);
 
-                                    let new_pos = add_2d((*i1, *j1), scale_2d(half_dist, -1.));
-                                        if !oob(new_pos, b.as_ref().unwrap().radius) {
-                                            b.unwrap().pos.0 = new_pos.0;
-                                        }
+                                let b_ref = b.as_ref().unwrap();
+
+                                if obstruct_collide(b_ref, o.as_ref().unwrap()) {
+                                    let (i1, j1) = b_ref.pos;
+                                    let (i2, j2) = o.unwrap().pos;
+
+                                    let c1c2 = (i2 - i1, j2 - j1);
+                                    let half_dist = scale_2d(c1c2, -0.5);
+
+                                    let new_pos = add_2d((i1, j1), half_dist);
+                                    if !oob(new_pos, b_ref.radius) {
+                                        b.unwrap().pos.0 = new_pos.0;
+                                    }
                                 }
                             }
                         }
@@ -224,64 +217,53 @@ impl Chunk {
     pub fn update_cells(&mut self) {
         for b in &mut self.balls {
             let (bi, bj) = b.pos;
-            let (oi, oj) = b.chunk;
-            let (i, j) = pos_to_chunk((bi, bj));
+            let (oi, oj) = b.world;
+            let (i, j) = pos_to_cell((bi, bj));
 
             if !same_index((oi, oj), (i, j)) {
-                b.chunk = (i, j);
+                b.world = (i, j);
 
-                self.cells[oi][oj].0.remove(&b.id);
-                self.cells[i][j].0.insert(b.id);
+                let oij = two_to_one((oi, oj));
+                let ij = two_to_one((i, j));
+
+                self.cells[oij].0.retain(|x| x != &b.id);
+                self.cells[ij].0.push(b.id);
             }
         }
     }
 
-    pub fn step(&mut self, substeps: usize) {
+    pub fn step(&mut self, substeps: usize, timestep: usize) {
         for _ in 0..substeps {
             self.move_balls(substeps);
-            self.check_collisions();
+            self.check_collisions(timestep);
             self.update_cells();
         }
     }
 }
 
-pub struct World {}
-
 fn main() {
-    let threads: Vec<JoinHandle<_>> = (0..1)
-        .into_par_iter()
-        .map(|i| {
-            thread::spawn(|| {
-                assert!(W_SIZE % N_CELLS == 0);
-                let mut chunk = Chunk::new(N_CELLS);
-                let rdist = Uniform::new(100., (W_SIZE as f64) - 100.);
-                let mut rng = thread_rng();
+    assert!(W_SIZE % N_CELLS == 0);
+    let mut world = World::new(N_CELLS);
+    let rdist = Uniform::new(1., (W_SIZE as f64) - 1.);
+    let mut rng = thread_rng();
 
-                for i in 1..2500 {
-                    chunk.add_ball(
-                        5.,
-                        (rng.sample(rdist), rng.sample(rdist)),
-                        rng.sample(rdist),
-                        50.,
-                    );
-                }
+    for i in 1..20000 {
+        world.add_ball(
+            5.,
+            (rng.sample(rdist), rng.sample(rdist)),
+            rng.sample(rdist),
+            50.,
+        );
+    }
 
-                for i in 1..2500 {
-                    chunk.add_obstruct(
-                        (rng.sample(rdist), rng.sample(rdist)));
-                }
+    // for i in 1..10000 {
+    //     world.add_obstruct((rng.sample(rdist), rng.sample(rdist)));
+    // }
 
-                for i in 1..10000000_u64 {
-                    if i % 60 == 0 {
-                        println!("{}", i)
-                    }
-                    chunk.step(1);
-                }
-            })
-        })
-        .collect();
-
-    for t in threads {
-        t.join();
+    for i in 1..10000000_usize {
+        if i % 60 == 0 {
+            println!("{}", i / 60)
+        }
+        world.step(1, i);
     }
 }

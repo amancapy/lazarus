@@ -320,7 +320,7 @@ fn main() {
     let mut i = 0;
     let r = world.being_radius;
     loop {
-        if false {
+        if true {
             {
                 if let Some(e) = window.next() {
                     window.draw_2d(&e, |c, g, device| {
