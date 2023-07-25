@@ -3,11 +3,10 @@ use rayon::prelude::*;
 use splitmut::SplitMut;
 
 const W_SIZE: usize = 1000;
-const N_CELLS: usize = 250;
+const N_CELLS: usize = 4;
 const WORLD_SIZE: usize = W_SIZE / N_CELLS;
 const W_FLOAT: f64 = W_SIZE as f64;
 const HZ: usize = 60;
-
 
 fn add_2d((i, j): (f64, f64), (k, l): (f64, f64)) -> (f64, f64) {
     (i + k, j + l)
@@ -46,38 +45,45 @@ pub fn pos_to_cell(pos: (f64, f64)) -> (usize, usize) {
 }
 
 pub fn lef_border_trespass(i: f64, r: f64) -> bool {
-    i - r < 0.
+    i - r < 1.
 }
 
 pub fn rig_border_trespass(i: f64, r: f64) -> bool {
-    i + r > W_FLOAT
+    i + r >= W_FLOAT - 1.
 }
 
 pub fn top_border_trespass(j: f64, r: f64) -> bool {
-    j - r < 0.
+    j - r < 1.
 }
 
 pub fn bot_border_trespass(j: f64, r: f64) -> bool {
-    j + r > W_FLOAT
+    j + r >= W_FLOAT - 1.
 }
 
-
 pub fn oob((i, j): (f64, f64), r: f64) -> bool {
-    lef_border_trespass(i, r) || rig_border_trespass(i, r) ||
-    top_border_trespass(j, r) || bot_border_trespass(j, r)
+    lef_border_trespass(i, r)
+        || rig_border_trespass(i, r)
+        || top_border_trespass(j, r)
+        || bot_border_trespass(j, r)
 }
 
 pub fn balls_collide(b1: &Being, b2: &Being) -> bool {
     let centre_dist = dist_2d(b1.pos, b2.pos);
     let (r1, r2) = (b1.radius, b2.radius);
 
-    centre_dist < r1 + r2
+    centre_dist <= r1 + r2
 }
 
 pub fn obstruct_collide(b: &Being, o: &Obstruct) -> bool {
     let centre_dist = dist_2d(b.pos, o.pos);
     let (r1, r2) = (b.radius, o.radius);
-    centre_dist < r1 + r2
+    centre_dist <= r1 + r2
+}
+
+pub fn food_collide(b: &Being, f: &Food) -> bool {
+    let centre_dist = dist_2d(b.pos, f.pos);
+    let (r1, r2) = (b.radius, 1.);
+    centre_dist <= r1 + r2
 }
 
 pub struct Obstruct {
@@ -87,6 +93,7 @@ pub struct Obstruct {
     id: usize,
 }
 
+#[derive(Debug)]
 pub struct Being {
     radius: f64,
     pos: (f64, f64),
@@ -94,14 +101,32 @@ pub struct Being {
     speed: f64,
     cell: (usize, usize),
     id: usize,
+
+    pos_update: (f64, f64),
+}
+
+pub struct Food {
+    pos: (f64, f64),
+    age: f64,
+    id: usize,
 }
 
 struct World {
     balls: Vec<Being>,
     obstructs: Vec<Obstruct>,
-    cells: Vec<(Vec<usize>, Vec<usize>)>,
+    foods: Vec<Food>,
+
+    being_cells: Vec<Vec<usize>>,
+    obstruct_cells: Vec<Vec<usize>>,
+    food_cells: Vec<Vec<usize>>,
+
     ball_id: usize,
     ob_id: usize,
+    food_id: usize,
+
+    ball_collision_count: usize,
+    obstruct_collision_count: usize,
+    food_collision_count: usize
 }
 
 impl World {
@@ -110,11 +135,19 @@ impl World {
         World {
             balls: vec![],
             obstructs: vec![],
-            cells: (0..(n_cells + 1).pow(2))
-                .map(|_| (Vec::new(), Vec::new()))
-                .collect(),
+            foods: vec![],
+
+            being_cells: (0..(n_cells + 1).pow(2)).map(|_| Vec::new()).collect(),
+            obstruct_cells: (0..(n_cells + 1).pow(2)).map(|_| Vec::new()).collect(),
+            food_cells: (0..(n_cells + 1).pow(2)).map(|_| Vec::new()).collect(),
+
             ball_id: 0,
             ob_id: 0,
+            food_id: 0,
+
+            ball_collision_count: 0,
+            obstruct_collision_count: 0,
+            food_collision_count: 0
         }
     }
 
@@ -127,28 +160,46 @@ impl World {
             speed: speed,
             cell: (i, j),
             id: self.ball_id,
+
+            pos_update: (0., 0.),
         });
         let ij = two_to_one((i, j));
-        self.cells[ij].0.push(self.ball_id);
+        self.being_cells[ij].push(self.ball_id);
         self.ball_id += 1;
     }
 
     pub fn add_obstruct(&mut self, pos: (f64, f64)) {
         let (i, j) = pos_to_cell(pos);
         self.obstructs.push(Obstruct {
-            radius: 3.,
+            radius: 2.,
             pos: pos,
             age: 5.,
             id: self.ob_id,
         });
 
         let ij = two_to_one((i, j));
-        self.cells[ij].1.push(self.ob_id);
+        self.obstruct_cells[ij].push(self.ob_id);
         self.ob_id += 1;
     }
 
+    pub fn add_food(&mut self, pos: (f64, f64)) {
+        let (i, j) = pos_to_cell(pos);
+        self.foods.push(Food {
+            pos: pos,
+            age: 5.,
+            id: self.food_id,
+        });
+
+        let ij = two_to_one((i, j));
+        self.food_cells[ij].push(self.food_id);
+        self.food_id += 1;
+    }
     pub fn move_balls(&mut self, substeps: usize) {
         let s = substeps as f64;
+
+        let rdist = Uniform::new(1., (W_SIZE as f64) - 1.);
+        let mut rng = thread_rng();
+
         for _ in 0..substeps {
             let w = W_SIZE as f64;
             self.balls.iter_mut().for_each(|ball| {
@@ -157,19 +208,8 @@ impl World {
 
                 let r = ball.radius;
 
-                // if top_border_trespass(newi, r) {
-                //     ball.rotation *= -1.;
-                    
-                //     if hor_border_trespass(newj, r) {
-                //         ball.rotation += 3.141532;
-                //     }
-
-                //     let new_dir = dir_from_theta(ball.rotation);
-                //     let new_pos = add_2d(ball.pos, new_dir);
-
-                //     ball.pos = new_pos;
-                //     println!("{:?}", ball.pos);
-                // }
+                // TEMP TEMP TEMP TEMP NOTICE TEMP
+                let (newi, newj) = (rng.sample(rdist), rng.sample(rdist));
 
                 if !oob((newi, newj), r) {
                     ball.pos = (newi, newj);
@@ -182,8 +222,7 @@ impl World {
         for i in 0..N_CELLS {
             for j in 0..N_CELLS {
                 let ij = two_to_one((i, j));
-                for id1 in &self.cells[ij].0 {
-                    let b1 = self.balls.get1_mut(*id1);
+                for id1 in &self.being_cells[ij] {
                     for (di, dj) in [
                         (-1, -1),
                         (-1, 0),
@@ -195,20 +234,23 @@ impl World {
                         (1, 0),
                         (1, 1),
                     ] {
-                        let (ni, nj) = ((i as isize + di), (j as isize + dj));
+                        let (ni, nj) = ((i as isize) + di, (j as isize) + dj);
                         let w = N_CELLS as isize;
                         if !(ni < 0 || ni >= w || nj < 0 || nj >= w) {
                             let (ni, nj) = (ni as usize, nj as usize);
                             let nij = two_to_one((ni, nj));
 
-                            for id2 in &self.cells[nij].0 {
+                            for id2 in &self.being_cells[nij] {
                                 if !(*id1 == *id2) {
                                     let (b1, b2) = self.balls.get2_mut(*id1, *id2);
 
                                     let b1_ref = b1.as_ref().unwrap();
                                     let b2_ref = b2.as_ref().unwrap();
 
-                                    if balls_collide(b1_ref, b2_ref) && b1_ref.id != b2_ref.id {
+                                    if balls_collide(b1_ref, b2_ref) {
+                                        // println!("{:?}    {:?}", b1_ref.pos, b2_ref.pos);
+                                        self.ball_collision_count += 1;
+
                                         let (i1, j1) = b1_ref.pos;
                                         let (i2, j2) = b2.unwrap().pos;
                                         let c1c2 = (i2 - i1, j2 - j1);
@@ -216,30 +258,39 @@ impl World {
 
                                         let new_pos = add_2d((i1, j1), half_dist);
                                         if !oob(new_pos, b1_ref.radius) {
-                                            b1.unwrap().pos.0 = new_pos.0;
+                                            b1.unwrap().pos_update = half_dist;
                                         }
                                     }
                                 }
                             }
 
-                            for ob_id in &self.cells[nij].1 {
-                                let b = self.balls.get_mut(*id1);
+                            for ob_id in &self.obstruct_cells[nij] {
+                                let b = self.balls.get_mut(*id1); // see this line here happens 3 times for some reason because the bc won't allow non overlapping borrows from the same vec even if i use a splitmut method the second time but i was assured the compiler compiles this away so who knows. for later.
                                 let o = self.obstructs.get_mut(*ob_id);
 
                                 let b_ref = b.as_ref().unwrap();
 
                                 if obstruct_collide(b_ref, o.as_ref().unwrap()) {
-                                    // println!("{}", timestep);
+                                    self.obstruct_collision_count += 1;
                                     let (i1, j1) = b_ref.pos;
                                     let (i2, j2) = o.unwrap().pos;
 
                                     let c1c2 = (i2 - i1, j2 - j1);
                                     let half_dist = scale_2d(c1c2, -0.5);
 
-                                    let new_pos = add_2d((i1, j1), half_dist);
-                                    if !oob(new_pos, b_ref.radius) {
-                                        b.unwrap().pos.0 = new_pos.0;
-                                    }
+                                    b.unwrap().pos_update = half_dist;
+                                }
+                            }
+
+                            for f_id in &self.food_cells[nij] {
+                                let b = self.balls.get_mut(*id1);
+                                let f = self.foods.get_mut(*f_id);
+
+                                let b_ref = b.as_ref().unwrap();
+                                
+                                if food_collide(b_ref, f.as_ref().unwrap()) {
+                                    // food.do_something(), this one along with beings dying completely ruins the sequential id scheme, sol here.
+                                    self.food_collision_count += 1;
                                 }
                             }
                         }
@@ -251,18 +302,21 @@ impl World {
 
     pub fn update_cells(&mut self) {
         for b in &mut self.balls {
-            let (bi, bj) = b.pos;
-            let (oi, oj) = b.cell;
-            let (i, j) = pos_to_cell((bi, bj));
+            let new_pos = add_2d(b.pos, b.pos_update);
 
-            if !same_index((oi, oj), (i, j)) {
-                b.cell = (i, j);
+            if !oob(new_pos, b.radius) {
+                let (oi, oj) = b.cell;
+                let (i, j) = pos_to_cell(new_pos);
 
-                let oij = two_to_one((oi, oj));
-                let ij = two_to_one((i, j));
+                if !same_index((oi, oj), (i, j)) {
+                    b.cell = (i, j);
 
-                self.cells[oij].0.retain(|x| x != &b.id);
-                self.cells[ij].0.push(b.id);
+                    let oij = two_to_one((oi, oj));
+                    let ij = two_to_one((i, j));
+
+                    self.being_cells[oij].retain(|x| x != &b.id);
+                    self.being_cells[ij].push(b.id);
+                }
             }
         }
     }
@@ -282,22 +336,33 @@ fn main() {
     let rdist = Uniform::new(1., (W_SIZE as f64) - 1.);
     let mut rng = thread_rng();
 
-    for i in 1..10000 {
+    for i in 1..300 {
         world.add_ball(
             5.,
             (rng.sample(rdist), rng.sample(rdist)),
             rng.sample(rdist),
-            50.,
+            1.,
         );
     }
 
-    for i in 1..10000 {
+    for i in 1..3000 {
         world.add_obstruct((rng.sample(rdist), rng.sample(rdist)));
+    }
+
+    for i in 1..500 {
+        world.add_food((rng.sample(rdist), rng.sample(rdist)))
     }
 
     for i in 1..10000000_usize {
         if i % HZ == 0 {
-            println!("{}", i / HZ)
+            // println!("{}", i / HZ)
+            println!(
+                "{} {} {}",
+                world.ball_collision_count, world.obstruct_collision_count, world.food_collision_count
+            );
+            world.ball_collision_count = 0;
+            world.obstruct_collision_count = 0;
+            world.food_collision_count = 0;
         }
         world.step(1, i);
     }

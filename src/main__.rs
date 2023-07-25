@@ -9,7 +9,7 @@ use std::{
     time::*,
 };
 
-const W_SIZE: usize = 720;
+const W_SIZE: usize = 1000;
 
 #[derive(Debug, PartialEq)]
 struct Being {
@@ -114,8 +114,8 @@ impl World {
             beings: DashMap::new(),
             foods: DashMap::new(),
 
-            being_speed: 5.,
-            being_radius: 5.,
+            being_speed: 1.,
+            being_radius: 3.,
 
             beingkey: 0,
             foodkey: 0,
@@ -245,6 +245,7 @@ impl World {
                 (-1, 0),
                 (-1, 1),
                 (0, -1),
+                (0, 0),
                 (0, 1),
                 (1, -1),
                 (1, 0),
@@ -301,11 +302,11 @@ impl World {
 }
 
 fn main() {
-    let mut world = World::new(18., 40);
+    let mut world = World::new(20., 50);
     let mut rng = thread_rng();
     let rdist = Uniform::new(1., W_SIZE as f64 - 1.);
     let rotdist = Uniform::new(-3.14, 3.14);
-    for i in (0..100) {
+    for i in (0..200) {
         world.add_being(
             (rng.sample(rdist), rng.sample(rdist)),
             rng.sample(rotdist),
