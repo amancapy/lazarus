@@ -3,7 +3,7 @@ use rayon::prelude::*;
 use splitmut::SplitMut;
 
 const W_SIZE: usize = 1000;
-const N_CELLS: usize = 4;
+const N_CELLS: usize = 25;
 const WORLD_SIZE: usize = W_SIZE / N_CELLS;
 const W_FLOAT: f64 = W_SIZE as f64;
 const HZ: usize = 60;
@@ -336,20 +336,20 @@ fn main() {
     let rdist = Uniform::new(1., (W_SIZE as f64) - 1.);
     let mut rng = thread_rng();
 
-    for i in 1..300 {
+    for i in 1..10000 {
         world.add_ball(
-            5.,
+            3.,
             (rng.sample(rdist), rng.sample(rdist)),
             rng.sample(rdist),
             1.,
         );
     }
 
-    for i in 1..3000 {
+    for i in 1..0 {
         world.add_obstruct((rng.sample(rdist), rng.sample(rdist)));
     }
 
-    for i in 1..500 {
+    for i in 1..0 {
         world.add_food((rng.sample(rdist), rng.sample(rdist)))
     }
 
