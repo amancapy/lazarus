@@ -92,7 +92,7 @@ pub struct Being {
     pos: (f64, f64),
     rotation: f64,
     speed: f64,
-    world: (usize, usize),
+    cell: (usize, usize),
     id: usize,
 }
 
@@ -125,7 +125,7 @@ impl World {
             pos: pos,
             rotation: rotation,
             speed: speed,
-            world: (i, j),
+            cell: (i, j),
             id: self.ball_id,
         });
         let ij = two_to_one((i, j));
@@ -252,11 +252,11 @@ impl World {
     pub fn update_cells(&mut self) {
         for b in &mut self.balls {
             let (bi, bj) = b.pos;
-            let (oi, oj) = b.world;
+            let (oi, oj) = b.cell;
             let (i, j) = pos_to_cell((bi, bj));
 
             if !same_index((oi, oj), (i, j)) {
-                b.world = (i, j);
+                b.cell = (i, j);
 
                 let oij = two_to_one((oi, oj));
                 let ij = two_to_one((i, j));
