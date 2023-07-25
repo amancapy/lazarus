@@ -4,7 +4,7 @@ use splitmut::SplitMut;
 
 const W_SIZE: usize = 1000;
 const N_CELLS: usize = 25;
-const WORLD_SIZE: usize = W_SIZE / N_CELLS;
+const CELL_SIZE: usize = W_SIZE / N_CELLS;
 const W_FLOAT: f64 = W_SIZE as f64;
 const HZ: usize = 60;
 
@@ -37,7 +37,7 @@ fn same_index((a, b): (usize, usize), (c, d): (usize, usize)) -> bool {
 }
 
 pub fn pos_to_cell(pos: (f64, f64)) -> (usize, usize) {
-    let c = WORLD_SIZE as f64;
+    let c = CELL_SIZE as f64;
     let i = ((pos.0 - (pos.0 % c)) / c) as usize;
     let j = ((pos.1 - (pos.1 % c)) / c) as usize;
 
@@ -126,7 +126,7 @@ struct World {
 
     ball_collision_count: usize,
     obstruct_collision_count: usize,
-    food_collision_count: usize
+    food_collision_count: usize,
 }
 
 impl World {
@@ -147,7 +147,7 @@ impl World {
 
             ball_collision_count: 0,
             obstruct_collision_count: 0,
-            food_collision_count: 0
+            food_collision_count: 0,
         }
     }
 
@@ -287,7 +287,7 @@ impl World {
                                 let f = self.foods.get_mut(*f_id);
 
                                 let b_ref = b.as_ref().unwrap();
-                                
+
                                 if food_collide(b_ref, f.as_ref().unwrap()) {
                                     // food.do_something(), this one along with beings dying completely ruins the sequential id scheme, sol here.
                                     self.food_collision_count += 1;
@@ -358,7 +358,9 @@ fn main() {
             // println!("{}", i / HZ)
             println!(
                 "{} {} {}",
-                world.ball_collision_count, world.obstruct_collision_count, world.food_collision_count
+                world.ball_collision_count,
+                world.obstruct_collision_count,
+                world.food_collision_count
             );
             world.ball_collision_count = 0;
             world.obstruct_collision_count = 0;
