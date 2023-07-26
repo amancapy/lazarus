@@ -347,7 +347,7 @@ fn run() {
     let rdist = Uniform::new(1., (W_SIZE as f64) - 1.);
     let mut rng = thread_rng();
 
-    for i in 1..10000 {
+    for i in 1..300 {
         world.add_ball(
             3.,
             (rng.sample(rdist), rng.sample(rdist)),
@@ -356,11 +356,11 @@ fn run() {
         );
     }
 
-    for i in 1..0 {
+    for i in 1..3000 {
         world.add_obstruct((rng.sample(rdist), rng.sample(rdist)));
     }
 
-    for i in 1..0 {
+    for i in 1..1000 {
         world.add_food((rng.sample(rdist), rng.sample(rdist)))
     }
 
