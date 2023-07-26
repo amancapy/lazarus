@@ -4,10 +4,10 @@ use piston_window::*;
 use splitmut::SplitMut;
 
 const W_SIZE: usize = 1000;
-const N_CELLS: usize = 250;
+const N_CELLS: usize = 200;
 const CELL_SIZE: usize = W_SIZE / N_CELLS;
 const W_FLOAT: f64 = W_SIZE as f64;
-const HZ: usize = 1000;
+const HZ: usize = 60;
 
 fn add_2d((i, j): (f64, f64), (k, l): (f64, f64)) -> (f64, f64) {
     (i + k, j + l)
@@ -347,7 +347,7 @@ fn run() {
     let rdist = Uniform::new(1., (W_SIZE as f64) - 1.);
     let mut rng = thread_rng();
 
-    for i in 1..3000 {
+    for i in 1..10000 {
         world.add_ball(
             3.,
             (rng.sample(rdist), rng.sample(rdist)),
@@ -370,15 +370,15 @@ fn run() {
             println!(
                 "{} {} {} {}",
                 i,
-                world.ball_collision_count,
-                world.obstruct_collision_count,
-                world.food_collision_count
+                world.ball_collision_count / HZ,
+                world.obstruct_collision_count / HZ,
+                world.food_collision_count / HZ
             );
             world.ball_collision_count = 0;
             world.obstruct_collision_count = 0;
             world.food_collision_count = 0;
         }
-        world.step(1, i);
+        world.step(4, i);
     }
 }
 
