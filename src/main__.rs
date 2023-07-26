@@ -5,7 +5,6 @@ use rayon::prelude::*;
 use std::{
     borrow::BorrowMut,
     sync::{Arc, Mutex},
-    thread,
     time::*,
 };
 

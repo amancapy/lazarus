@@ -1,12 +1,13 @@
 use rand::{distributions::Uniform, prelude::*};
 use rayon::prelude::*;
+use piston_window::*;
 use splitmut::SplitMut;
 
 const W_SIZE: usize = 1000;
-const N_CELLS: usize = 25;
+const N_CELLS: usize = 250;
 const CELL_SIZE: usize = W_SIZE / N_CELLS;
 const W_FLOAT: f64 = W_SIZE as f64;
-const HZ: usize = 60;
+const HZ: usize = 1000;
 
 fn add_2d((i, j): (f64, f64), (k, l): (f64, f64)) -> (f64, f64) {
     (i + k, j + l)
@@ -208,17 +209,25 @@ impl World {
 
                 let r = ball.radius;
 
-                // TEMP TEMP TEMP TEMP NOTICE TEMP
-                let (newi, newj) = (rng.sample(rdist), rng.sample(rdist));
+                
 
                 if !oob((newi, newj), r) {
                     ball.pos = (newi, newj);
+                }
+
+
+                // TEMP TEMP TEMP TEMP NOTICE TEMP
+                else {
+                let (newi, newj) = (rng.sample(rdist), rng.sample(rdist));
+                ball.pos = (newi, newj);
                 }
             });
         }
     }
 
     pub fn check_collisions(&mut self, timestep: usize) {
+        let w = N_CELLS as isize;
+
         for i in 0..N_CELLS {
             for j in 0..N_CELLS {
                 let ij = two_to_one((i, j));
@@ -235,7 +244,6 @@ impl World {
                         (1, 1),
                     ] {
                         let (ni, nj) = ((i as isize) + di, (j as isize) + dj);
-                        let w = N_CELLS as isize;
                         if !(ni < 0 || ni >= w || nj < 0 || nj >= w) {
                             let (ni, nj) = (ni as usize, nj as usize);
                             let nij = two_to_one((ni, nj));
@@ -305,6 +313,9 @@ impl World {
             let new_pos = add_2d(b.pos, b.pos_update);
 
             if !oob(new_pos, b.radius) {
+                b.pos = new_pos;
+                b.pos_update = (0., 0.);
+
                 let (oi, oj) = b.cell;
                 let (i, j) = pos_to_cell(new_pos);
 
@@ -330,13 +341,13 @@ impl World {
     }
 }
 
-fn main() {
+fn run() {
     assert!(W_SIZE % N_CELLS == 0);
     let mut world = World::new(N_CELLS);
     let rdist = Uniform::new(1., (W_SIZE as f64) - 1.);
     let mut rng = thread_rng();
 
-    for i in 1..10000 {
+    for i in 1..3000 {
         world.add_ball(
             3.,
             (rng.sample(rdist), rng.sample(rdist)),
@@ -353,11 +364,12 @@ fn main() {
         world.add_food((rng.sample(rdist), rng.sample(rdist)))
     }
 
+
     for i in 1..10000000_usize {
         if i % HZ == 0 {
-            // println!("{}", i / HZ)
             println!(
-                "{} {} {}",
+                "{} {} {} {}",
+                i,
                 world.ball_collision_count,
                 world.obstruct_collision_count,
                 world.food_collision_count
@@ -368,4 +380,12 @@ fn main() {
         }
         world.step(1, i);
     }
+}
+
+
+fn main () {
+    // let (i, j) = (10, 10);
+    // let k = two_to_one((i, j));
+    // println!("{}", k);
+    run();
 }
