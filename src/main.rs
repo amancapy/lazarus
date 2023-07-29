@@ -1,10 +1,11 @@
 use rand::{distributions::Uniform, prelude::*};
 use rayon::prelude::*;
-use piston_window::*;
 use splitmut::SplitMut;
+use miniquad::*;
+
 
 const W_SIZE: usize = 1000;
-const N_CELLS: usize = 200;
+const N_CELLS: usize = 250;
 const CELL_SIZE: usize = W_SIZE / N_CELLS;
 const W_FLOAT: f64 = W_SIZE as f64;
 const HZ: usize = 60;
@@ -347,7 +348,7 @@ fn run() {
     let rdist = Uniform::new(1., (W_SIZE as f64) - 1.);
     let mut rng = thread_rng();
 
-    for i in 1..300 {
+    for i in 1..30000 {
         world.add_ball(
             3.,
             (rng.sample(rdist), rng.sample(rdist)),
@@ -356,11 +357,11 @@ fn run() {
         );
     }
 
-    for i in 1..3000 {
+    for i in 1..0 {
         world.add_obstruct((rng.sample(rdist), rng.sample(rdist)));
     }
 
-    for i in 1..1000 {
+    for i in 1..0 {
         world.add_food((rng.sample(rdist), rng.sample(rdist)))
     }
 
@@ -378,10 +379,14 @@ fn run() {
             world.obstruct_collision_count = 0;
             world.food_collision_count = 0;
         }
-        world.step(4, i);
+        world.step(2, i);
     }
 }
 
+
+fn draw(w: World) {
+
+}
 
 fn main () {
     // let (i, j) = (10, 10);
