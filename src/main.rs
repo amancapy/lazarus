@@ -1,7 +1,13 @@
 use rand::{distributions::Uniform, prelude::*};
 use rayon::prelude::*;
 use splitmut::SplitMut;
-use miniquad::*;
+use ggez::event;
+use ggez::glam::*;
+use ggez::graphics::{self, Color};
+use ggez::{Context, GameResult};
+use std::env;
+use std::f32::consts::TAU;
+use std::path;
 
 
 const W_SIZE: usize = 1000;
@@ -9,6 +15,7 @@ const N_CELLS: usize = 250;
 const CELL_SIZE: usize = W_SIZE / N_CELLS;
 const W_FLOAT: f64 = W_SIZE as f64;
 const HZ: usize = 60;
+
 
 fn add_2d((i, j): (f64, f64), (k, l): (f64, f64)) -> (f64, f64) {
     (i + k, j + l)
@@ -88,12 +95,6 @@ pub fn food_collide(b: &Being, f: &Food) -> bool {
     centre_dist <= r1 + r2
 }
 
-pub struct Obstruct {
-    radius: f64,
-    pos: (f64, f64),
-    age: f64,
-    id: usize,
-}
 
 #[derive(Debug)]
 pub struct Being {
@@ -105,6 +106,13 @@ pub struct Being {
     id: usize,
 
     pos_update: (f64, f64),
+}
+
+pub struct Obstruct {
+    radius: f64,
+    pos: (f64, f64),
+    age: f64,
+    id: usize,
 }
 
 pub struct Food {
@@ -298,7 +306,7 @@ impl World {
                                 let b_ref = b.as_ref().unwrap();
 
                                 if food_collide(b_ref, f.as_ref().unwrap()) {
-                                    // food.do_something(), this one along with beings dying completely ruins the sequential id scheme, sol here.
+                                    // food.do_something(), this one along with beings dying ruins the sequential id scheme, sol here.
                                     self.food_collision_count += 1;
                                 }
                             }
@@ -348,20 +356,20 @@ fn run() {
     let rdist = Uniform::new(1., (W_SIZE as f64) - 1.);
     let mut rng = thread_rng();
 
-    for i in 1..30000 {
+    for i in 1..300 {
         world.add_ball(
-            3.,
+            2.,
             (rng.sample(rdist), rng.sample(rdist)),
             rng.sample(rdist),
             1.,
         );
     }
 
-    for i in 1..0 {
+    for i in 1..3000 {
         world.add_obstruct((rng.sample(rdist), rng.sample(rdist)));
     }
 
-    for i in 1..0 {
+    for i in 1..1000 {
         world.add_food((rng.sample(rdist), rng.sample(rdist)))
     }
 
@@ -379,18 +387,90 @@ fn run() {
             world.obstruct_collision_count = 0;
             world.food_collision_count = 0;
         }
-        world.step(2, i);
+        
+        world.step(1, i);
     }
 }
 
 
-fn draw(w: World) {
-
+struct MainState {
+    instances: graphics::InstanceArray,
+    world: World
 }
 
-fn main () {
-    // let (i, j) = (10, 10);
-    // let k = two_to_one((i, j));
-    // println!("{}", k);
-    run();
+impl MainState {
+    fn new(ctx: &mut Context, w: World) -> GameResult<MainState> {
+        let image = graphics::Image::from_path(ctx, "")?;
+        let mut instances = graphics::InstanceArray::new(ctx, image);
+        instances.resize(ctx, 100);
+        Ok(MainState { instances: instances, world: w})
+    }
+}
+
+impl event::EventHandler<ggez::GameError> for MainState {
+    fn update(&mut self, _ctx: &mut Context) -> Result<(), ggez::GameError> {
+        self.world.step(1, 1);
+        Ok(())
+    }
+
+    fn draw(&mut self, _ctx: &mut Context) -> Result<(), ggez::GameError> {
+        let mut canvas = graphics::Canvas::from_frame(_ctx, Color::WHITE);
+
+        self.instances.set(
+            self.world.balls.iter().map(|b| {
+                let (x, y) = b.pos;
+                graphics::DrawParam::new().dest(Vec2::new(x as f32, y as f32))
+            })
+        );
+
+        let param = graphics::DrawParam::new();
+        canvas.draw(&self.instances, param);
+        canvas.finish(_ctx)
+    }
+}
+
+pub fn main() -> GameResult {
+    assert!(W_SIZE % N_CELLS == 0);
+    let mut world = World::new(N_CELLS);
+    let rdist = Uniform::new(1., (W_SIZE as f64) - 1.);
+    let mut rng = thread_rng();
+
+    for i in 1..300 {
+        world.add_ball(
+            2.,
+            (rng.sample(rdist), rng.sample(rdist)),
+            rng.sample(rdist),
+            1.,
+        );
+    }
+
+    for i in 1..3000 {
+        world.add_obstruct((rng.sample(rdist), rng.sample(rdist)));
+    }
+
+    for i in 1..1000 {
+        world.add_food((rng.sample(rdist), rng.sample(rdist)))
+    }
+
+
+    if cfg!(debug_assertions) && env::var("yes_i_really_want_debug_mode").is_err() {
+        eprintln!(
+            "Note: Release mode will improve performance greatly.\n    \
+             e.g. use `cargo run --example spritebatch --release`"
+        );
+    }
+
+    let resource_dir = if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
+        let mut path = path::PathBuf::from(manifest_dir);
+        path.push("resources");
+        path
+    } else {
+        path::PathBuf::from("./resources")
+    };
+
+    let cb = ggez::ContextBuilder::new("spritebatch", "ggez").add_resource_path(resource_dir);
+    let (mut ctx, event_loop) = cb.build()?;
+
+    let state = MainState::new(&mut ctx, world)?;
+    event::run(ctx, event_loop, state)
 }
