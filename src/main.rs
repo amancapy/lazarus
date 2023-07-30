@@ -137,6 +137,8 @@ struct World {
     ball_collision_count: usize,
     obstruct_collision_count: usize,
     food_collision_count: usize,
+
+    age: usize
 }
 
 impl World {
@@ -158,6 +160,8 @@ impl World {
             ball_collision_count: 0,
             obstruct_collision_count: 0,
             food_collision_count: 0,
+
+            age: 0
         }
     }
 
@@ -341,90 +345,53 @@ impl World {
         }
     }
 
-    pub fn step(&mut self, substeps: usize, timestep: usize) {
+    pub fn step(&mut self, substeps: usize) {
         for _ in 0..substeps {
             self.move_balls(substeps);
-            self.check_collisions(timestep);
+            self.check_collisions(self.age);
             self.update_cells();
         }
-    }
-}
-
-fn run() {
-    assert!(W_SIZE % N_CELLS == 0);
-    let mut world = World::new(N_CELLS);
-    let rdist = Uniform::new(1., (W_SIZE as f64) - 1.);
-    let mut rng = thread_rng();
-
-    for i in 1..300 {
-        world.add_ball(
-            2.,
-            (rng.sample(rdist), rng.sample(rdist)),
-            rng.sample(rdist),
-            1.,
-        );
+        self.age += 1;
     }
 
-    for i in 1..3000 {
-        world.add_obstruct((rng.sample(rdist), rng.sample(rdist)));
-    }
-
-    for i in 1..1000 {
-        world.add_food((rng.sample(rdist), rng.sample(rdist)))
-    }
-
-
-    for i in 1..10000000_usize {
-        if i % HZ == 0 {
-            println!(
-                "{} {} {} {}",
-                i,
-                world.ball_collision_count / HZ,
-                world.obstruct_collision_count / HZ,
-                world.food_collision_count / HZ
-            );
-            world.ball_collision_count = 0;
-            world.obstruct_collision_count = 0;
-            world.food_collision_count = 0;
-        }
-        
-        world.step(1, i);
-    }
 }
 
 
 struct MainState {
-    instances: graphics::InstanceArray,
+    ball_instances: graphics::InstanceArray,
     world: World
 }
 
 impl MainState {
     fn new(ctx: &mut Context, w: World) -> GameResult<MainState> {
-        let image = graphics::Image::from_path(ctx, "")?;
+        let image = graphics::Image::from_path(ctx, "/pacman.jpeg")?;
         let mut instances = graphics::InstanceArray::new(ctx, image);
         instances.resize(ctx, 100);
-        Ok(MainState { instances: instances, world: w})
+        Ok(MainState { ball_instances: instances, world: w})
     }
 }
 
 impl event::EventHandler<ggez::GameError> for MainState {
-    fn update(&mut self, _ctx: &mut Context) -> Result<(), ggez::GameError> {
-        self.world.step(1, 1);
+    fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
+        self.world.step(1);
+        if self.world.age % HZ == 0 {
+            println!("{} {}", self.world.age, ctx.time.fps());
+        }
         Ok(())
     }
 
     fn draw(&mut self, _ctx: &mut Context) -> Result<(), ggez::GameError> {
-        let mut canvas = graphics::Canvas::from_frame(_ctx, Color::WHITE);
+        let mut canvas = graphics::Canvas::from_frame(_ctx, Color::BLACK);
 
-        self.instances.set(
+        self.ball_instances.set(
             self.world.balls.iter().map(|b| {
                 let (x, y) = b.pos;
-                graphics::DrawParam::new().dest(Vec2::new(x as f32, y as f32))
+                graphics::DrawParam::new().dest(Vec2::new(x as f32, y as f32)).scale(Vec2::new(0.01, 0.01))
             })
         );
 
         let param = graphics::DrawParam::new();
-        canvas.draw(&self.instances, param);
+        canvas.draw(&self.ball_instances, param);
         canvas.finish(_ctx)
     }
 }
@@ -435,7 +402,7 @@ pub fn main() -> GameResult {
     let rdist = Uniform::new(1., (W_SIZE as f64) - 1.);
     let mut rng = thread_rng();
 
-    for i in 1..300 {
+    for i in 1..500 {
         world.add_ball(
             2.,
             (rng.sample(rdist), rng.sample(rdist)),
@@ -444,11 +411,11 @@ pub fn main() -> GameResult {
         );
     }
 
-    for i in 1..3000 {
+    for i in 1..5000 {
         world.add_obstruct((rng.sample(rdist), rng.sample(rdist)));
     }
 
-    for i in 1..1000 {
+    for i in 1..2000 {
         world.add_food((rng.sample(rdist), rng.sample(rdist)))
     }
 
