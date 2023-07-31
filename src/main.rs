@@ -219,6 +219,8 @@ impl World {
         let rdist = Uniform::new(1., (W_SIZE as f32) - 1.);
         let mut rng = thread_rng();
 
+
+        // REMEMBER TO POS_UPDATE HERE INSTEAD OF ASYNC UPDATE (CURRENT)
         for _ in 0..substeps {
             let w = W_SIZE as f32;
             self.balls.iter_mut().for_each(|ball| {
@@ -386,10 +388,11 @@ impl World {
             self.move_balls(substeps);
             self.check_collisions(self.age);
             self.update_cells();
-            self.age_foods(0.9);
-            self.age_obstructs(0.9);
 
         }
+        self.age_foods(0.999);
+        self.age_obstructs(0.999);
+        
         self.age += 1;
     }
 }
@@ -413,7 +416,7 @@ impl MainState {
 
 impl event::EventHandler<ggez::GameError> for MainState {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
-        self.world.step(1);
+        self.world.step(4);
         if self.world.age % HZ == 0 {
             println!("{} {} {}", self.world.age, ctx.time.fps(), self.world.obstructs.len());
         }
@@ -444,29 +447,29 @@ pub fn run() -> GameResult {
     let rdist = Uniform::new(1., (W_SIZE as f32) - 1.);
     let mut rng = thread_rng();
 
-    for i in 1..50000 {
+    for i in 1..10000 {
         world.add_ball(
             2.,
             (rng.sample(rdist), rng.sample(rdist)),
             rng.sample(rdist),
-            1.,
+            0.1,
         );
     }
 
-    for i in 1..5000 {
-        world.add_obstruct((rng.sample(rdist), rng.sample(rdist)));
-    }
+    // for i in 1..5000 {
+    //     world.add_obstruct((rng.sample(rdist), rng.sample(rdist)));
+    // }
 
-    for i in 1..2000 {
-        world.add_food((rng.sample(rdist), rng.sample(rdist)))
-    }
+    // for i in 1..2000 {
+    //     world.add_food((rng.sample(rdist), rng.sample(rdist)))
+    // }
 
-    if cfg!(debug_assertions) && env::var("yes_i_really_want_debug_mode").is_err() {
-        eprintln!(
-            "Note: Release mode will improve performance greatly.\n    \
-             e.g. use `cargo run --example spritebatch --release`"
-        );
-    }
+    // if cfg!(debug_assertions) && env::var("yes_i_really_want_debug_mode").is_err() {
+    //     eprintln!(
+    //         "Note: Release mode will improve performance greatly.\n    \
+    //          e.g. use `cargo run --example spritebatch --release`"
+    //     );
+    // }
 
     let resource_dir = if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
         let mut path = path::PathBuf::from(manifest_dir);
@@ -481,6 +484,7 @@ pub fn run() -> GameResult {
         .window_mode(WindowMode {
             width: W_FLOAT,
             height: W_FLOAT,
+            
             ..Default::default()
         });
     let (mut ctx, event_loop) = cb.build()?;
