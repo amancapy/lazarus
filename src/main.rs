@@ -1,31 +1,31 @@
-use rand::{distributions::Uniform, prelude::*};
-use rayon::prelude::*;
-use splitmut::SplitMut;
+use ggez::conf::WindowMode;
 use ggez::event;
 use ggez::glam::*;
 use ggez::graphics::{self, Color};
+use ggez::winit::window::WindowBuilder;
 use ggez::{Context, GameResult};
+use rand::{distributions::Uniform, prelude::*};
+use rayon::prelude::*;
+use splitmut::SplitMut;
 use std::env;
 use std::f32::consts::TAU;
 use std::path;
 
-
 const W_SIZE: usize = 1000;
 const N_CELLS: usize = 250;
 const CELL_SIZE: usize = W_SIZE / N_CELLS;
-const W_FLOAT: f64 = W_SIZE as f64;
+const W_FLOAT: f32 = W_SIZE as f32;
 const HZ: usize = 60;
 
-
-fn add_2d((i, j): (f64, f64), (k, l): (f64, f64)) -> (f64, f64) {
+fn add_2d((i, j): (f32, f32), (k, l): (f32, f32)) -> (f32, f32) {
     (i + k, j + l)
 }
 
-fn scale_2d((i, j): (f64, f64), c: f64) -> (f64, f64) {
+fn scale_2d((i, j): (f32, f32), c: f32) -> (f32, f32) {
     (i * c, j * c)
 }
 
-fn dist_2d((i1, j1): (f64, f64), (i2, j2): (f64, f64)) -> f64 {
+fn dist_2d((i1, j1): (f32, f32), (i2, j2): (f32, f32)) -> f32 {
     ((i1 - i2).powi(2) + (j1 - j2).powi(2)).sqrt()
 }
 
@@ -37,7 +37,7 @@ fn two_to_one((i, j): (usize, usize)) -> usize {
     i * N_CELLS + j
 }
 
-fn dir_from_theta(theta: f64) -> (f64, f64) {
+fn dir_from_theta(theta: f32) -> (f32, f32) {
     (theta.cos(), theta.sin())
 }
 
@@ -45,31 +45,31 @@ fn same_index((a, b): (usize, usize), (c, d): (usize, usize)) -> bool {
     a == c && b == d
 }
 
-pub fn pos_to_cell(pos: (f64, f64)) -> (usize, usize) {
-    let c = CELL_SIZE as f64;
+pub fn pos_to_cell(pos: (f32, f32)) -> (usize, usize) {
+    let c = CELL_SIZE as f32;
     let i = ((pos.0 - (pos.0 % c)) / c) as usize;
     let j = ((pos.1 - (pos.1 % c)) / c) as usize;
 
     (i, j)
 }
 
-pub fn lef_border_trespass(i: f64, r: f64) -> bool {
+pub fn lef_border_trespass(i: f32, r: f32) -> bool {
     i - r < 1.
 }
 
-pub fn rig_border_trespass(i: f64, r: f64) -> bool {
+pub fn rig_border_trespass(i: f32, r: f32) -> bool {
     i + r >= W_FLOAT - 1.
 }
 
-pub fn top_border_trespass(j: f64, r: f64) -> bool {
+pub fn top_border_trespass(j: f32, r: f32) -> bool {
     j - r < 1.
 }
 
-pub fn bot_border_trespass(j: f64, r: f64) -> bool {
+pub fn bot_border_trespass(j: f32, r: f32) -> bool {
     j + r >= W_FLOAT - 1.
 }
 
-pub fn oob((i, j): (f64, f64), r: f64) -> bool {
+pub fn oob((i, j): (f32, f32), r: f32) -> bool {
     lef_border_trespass(i, r)
         || rig_border_trespass(i, r)
         || top_border_trespass(j, r)
@@ -95,29 +95,28 @@ pub fn food_collide(b: &Being, f: &Food) -> bool {
     centre_dist <= r1 + r2
 }
 
-
 #[derive(Debug)]
 pub struct Being {
-    radius: f64,
-    pos: (f64, f64),
-    rotation: f64,
-    speed: f64,
+    radius: f32,
+    pos: (f32, f32),
+    rotation: f32,
+    speed: f32,
     cell: (usize, usize),
     id: usize,
 
-    pos_update: (f64, f64),
+    pos_update: (f32, f32),
 }
 
 pub struct Obstruct {
-    radius: f64,
-    pos: (f64, f64),
-    age: f64,
+    radius: f32,
+    pos: (f32, f32),
+    age: f32,
     id: usize,
 }
 
 pub struct Food {
-    pos: (f64, f64),
-    age: f64,
+    pos: (f32, f32),
+    age: f32,
     id: usize,
 }
 
@@ -138,7 +137,10 @@ struct World {
     obstruct_collision_count: usize,
     food_collision_count: usize,
 
-    age: usize
+    food_deaths: Vec<usize>,
+    obstruct_deaths: Vec<usize>,
+
+    age: usize,
 }
 
 impl World {
@@ -161,11 +163,14 @@ impl World {
             obstruct_collision_count: 0,
             food_collision_count: 0,
 
-            age: 0
+            food_deaths: vec![],
+            obstruct_deaths: vec![],
+
+            age: 0,
         }
     }
 
-    pub fn add_ball(&mut self, radius: f64, pos: (f64, f64), rotation: f64, speed: f64) {
+    pub fn add_ball(&mut self, radius: f32, pos: (f32, f32), rotation: f32, speed: f32) {
         let (i, j) = pos_to_cell(pos);
         self.balls.push(Being {
             radius: radius,
@@ -182,7 +187,7 @@ impl World {
         self.ball_id += 1;
     }
 
-    pub fn add_obstruct(&mut self, pos: (f64, f64)) {
+    pub fn add_obstruct(&mut self, pos: (f32, f32)) {
         let (i, j) = pos_to_cell(pos);
         self.obstructs.push(Obstruct {
             radius: 2.,
@@ -196,7 +201,7 @@ impl World {
         self.ob_id += 1;
     }
 
-    pub fn add_food(&mut self, pos: (f64, f64)) {
+    pub fn add_food(&mut self, pos: (f32, f32)) {
         let (i, j) = pos_to_cell(pos);
         self.foods.push(Food {
             pos: pos,
@@ -209,30 +214,26 @@ impl World {
         self.food_id += 1;
     }
     pub fn move_balls(&mut self, substeps: usize) {
-        let s = substeps as f64;
+        let s = substeps as f32;
 
-        let rdist = Uniform::new(1., (W_SIZE as f64) - 1.);
+        let rdist = Uniform::new(1., (W_SIZE as f32) - 1.);
         let mut rng = thread_rng();
 
         for _ in 0..substeps {
-            let w = W_SIZE as f64;
+            let w = W_SIZE as f32;
             self.balls.iter_mut().for_each(|ball| {
                 let move_vec = scale_2d(dir_from_theta(ball.rotation), ball.speed / s);
                 let (newi, newj) = add_2d(ball.pos, move_vec);
 
                 let r = ball.radius;
 
-                
-
                 if !oob((newi, newj), r) {
                     ball.pos = (newi, newj);
                 }
-
-
                 // TEMP TEMP TEMP TEMP NOTICE TEMP
                 else {
-                let (newi, newj) = (rng.sample(rdist), rng.sample(rdist));
-                ball.pos = (newi, newj);
+                    let (newi, newj) = (rng.sample(rdist), rng.sample(rdist));
+                    ball.pos = (newi, newj);
                 }
             });
         }
@@ -345,21 +346,43 @@ impl World {
         }
     }
 
+    pub fn age_foods(&mut self, decay_rate: f32) {
+        for f in &mut self.foods {
+            f.age *= decay_rate;
+            if f.age < 0.05 {
+                self.food_deaths.push(f.id);
+            }
+        }
+
+        
+    }
+
+    pub fn age_obstructs (&mut self, decay_rate: f32) {
+        for o in &mut self.obstructs {
+            o.age *= decay_rate;
+
+            if o.age < 0.05 {
+                self.obstruct_deaths.push(o.id);
+            }
+        }
+    }
+
     pub fn step(&mut self, substeps: usize) {
         for _ in 0..substeps {
             self.move_balls(substeps);
             self.check_collisions(self.age);
             self.update_cells();
+            self.age_foods(0.9);
+            self.age_obstructs(0.9);
+
         }
         self.age += 1;
     }
-
 }
-
 
 struct MainState {
     ball_instances: graphics::InstanceArray,
-    world: World
+    world: World,
 }
 
 impl MainState {
@@ -367,7 +390,10 @@ impl MainState {
         let image = graphics::Image::from_path(ctx, "/pacman.jpeg")?;
         let mut instances = graphics::InstanceArray::new(ctx, image);
         instances.resize(ctx, 100);
-        Ok(MainState { ball_instances: instances, world: w})
+        Ok(MainState {
+            ball_instances: instances,
+            world: w,
+        })
     }
 }
 
@@ -383,12 +409,13 @@ impl event::EventHandler<ggez::GameError> for MainState {
     fn draw(&mut self, _ctx: &mut Context) -> Result<(), ggez::GameError> {
         let mut canvas = graphics::Canvas::from_frame(_ctx, Color::BLACK);
 
-        self.ball_instances.set(
-            self.world.balls.iter().map(|b| {
-                let (x, y) = b.pos;
-                graphics::DrawParam::new().dest(Vec2::new(x as f32, y as f32)).scale(Vec2::new(0.01, 0.01))
-            })
-        );
+        self.ball_instances.set(self.world.balls.iter().map(|b| {
+            let (x, y) = b.pos;
+            graphics::DrawParam::new()
+                .dest(Vec2::new(x, y))
+                .scale(Vec2::new(0.01, 0.01))
+                .rotation(b.rotation)
+        }));
 
         let param = graphics::DrawParam::new();
         canvas.draw(&self.ball_instances, param);
@@ -396,10 +423,10 @@ impl event::EventHandler<ggez::GameError> for MainState {
     }
 }
 
-pub fn main() -> GameResult {
+pub fn run() -> GameResult {
     assert!(W_SIZE % N_CELLS == 0);
     let mut world = World::new(N_CELLS);
-    let rdist = Uniform::new(1., (W_SIZE as f64) - 1.);
+    let rdist = Uniform::new(1., (W_SIZE as f32) - 1.);
     let mut rng = thread_rng();
 
     for i in 1..500 {
@@ -419,7 +446,6 @@ pub fn main() -> GameResult {
         world.add_food((rng.sample(rdist), rng.sample(rdist)))
     }
 
-
     if cfg!(debug_assertions) && env::var("yes_i_really_want_debug_mode").is_err() {
         eprintln!(
             "Note: Release mode will improve performance greatly.\n    \
@@ -435,9 +461,19 @@ pub fn main() -> GameResult {
         path::PathBuf::from("./resources")
     };
 
-    let cb = ggez::ContextBuilder::new("spritebatch", "ggez").add_resource_path(resource_dir);
+    let cb = ggez::ContextBuilder::new("spritebatch", "ggez")
+        .add_resource_path(resource_dir)
+        .window_mode(WindowMode {
+            width: W_FLOAT,
+            height: W_FLOAT,
+            ..Default::default()
+        });
     let (mut ctx, event_loop) = cb.build()?;
 
     let state = MainState::new(&mut ctx, world)?;
     event::run(ctx, event_loop, state)
+}
+
+pub fn main() {
+    run();
 }
