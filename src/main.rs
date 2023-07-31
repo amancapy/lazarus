@@ -76,7 +76,7 @@ pub fn oob((i, j): (f32, f32), r: f32) -> bool {
         || bot_border_trespass(j, r)
 }
 
-pub fn balls_collide(b1: &Being, b2: &Being) -> bool {
+pub fn beings_collide(b1: &Being, b2: &Being) -> bool {
     let centre_dist = dist_2d(b1.pos, b2.pos);
     let (r1, r2) = (b1.radius, b2.radius);
 
@@ -100,6 +100,8 @@ pub struct Being {
     radius: f32,
     pos: (f32, f32),
     rotation: f32,
+    energy: f32,
+
     speed: f32,
     cell: (usize, usize),
     id: usize,
@@ -121,7 +123,7 @@ pub struct Food {
 }
 
 struct World {
-    balls: Vec<Being>,
+    beings: Vec<Being>,
     obstructs: Vec<Obstruct>,
     foods: Vec<Food>,
 
@@ -129,16 +131,17 @@ struct World {
     obstruct_cells: Vec<Vec<usize>>,
     food_cells: Vec<Vec<usize>>,
 
-    ball_id: usize,
+    being_id: usize,
     ob_id: usize,
     food_id: usize,
 
-    ball_collision_count: usize,
+    being_collision_count: usize,
     obstruct_collision_count: usize,
     food_collision_count: usize,
 
-    food_deaths: Vec<(usize, (f32, f32))>,
+    being_deaths: Vec<(usize, (f32, f32))>,
     obstruct_deaths: Vec<(usize, (f32, f32))>,
+    food_deaths: Vec<(usize, (f32, f32))>,
 
     age: usize,
 }
@@ -147,7 +150,7 @@ impl World {
     pub fn new(n_cells: usize) -> Self {
         assert!(W_SIZE % n_cells == 0);
         World {
-            balls: vec![],
+            beings: vec![],
             obstructs: vec![],
             foods: vec![],
 
@@ -155,14 +158,15 @@ impl World {
             obstruct_cells: (0..(n_cells + 1).pow(2)).map(|_| Vec::new()).collect(),
             food_cells: (0..(n_cells + 1).pow(2)).map(|_| Vec::new()).collect(),
 
-            ball_id: 0,
+            being_id: 0,
             ob_id: 0,
             food_id: 0,
 
-            ball_collision_count: 0,
+            being_collision_count: 0,
             obstruct_collision_count: 0,
             food_collision_count: 0,
 
+            being_deaths: vec![],
             food_deaths: vec![],
             obstruct_deaths: vec![],
 
@@ -170,21 +174,23 @@ impl World {
         }
     }
 
-    pub fn add_ball(&mut self, radius: f32, pos: (f32, f32), rotation: f32, speed: f32) {
+    pub fn add_being(&mut self, radius: f32, pos: (f32, f32), rotation: f32, speed: f32, health: f32) {
         let (i, j) = pos_to_cell(pos);
-        self.balls.push(Being {
+        self.beings.push(Being {
             radius: radius,
             pos: pos,
             rotation: rotation,
+
+            energy: health,
             speed: speed,
             cell: (i, j),
-            id: self.ball_id,
+            id: self.being_id,
 
             pos_update: (0., 0.),
         });
         let ij = two_to_one((i, j));
-        self.being_cells[ij].push(self.ball_id);
-        self.ball_id += 1;
+        self.being_cells[ij].push(self.being_id);
+        self.being_id += 1;
     }
 
     pub fn add_obstruct(&mut self, pos: (f32, f32)) {
@@ -213,7 +219,7 @@ impl World {
         self.food_cells[ij].push(self.food_id);
         self.food_id += 1;
     }
-    pub fn move_balls(&mut self, substeps: usize) {
+    pub fn move_beings(&mut self, substeps: usize) {
         let s = substeps as f32;
 
         let rdist = Uniform::new(1., (W_SIZE as f32) - 1.);
@@ -223,19 +229,19 @@ impl World {
         // REMEMBER TO POS_UPDATE HERE INSTEAD OF ASYNC UPDATE (CURRENT)
         for _ in 0..substeps {
             let w = W_SIZE as f32;
-            self.balls.iter_mut().for_each(|ball| {
-                let move_vec = scale_2d(dir_from_theta(ball.rotation), ball.speed / s);
-                let (newi, newj) = add_2d(ball.pos, move_vec);
+            self.beings.iter_mut().for_each(|being| {
+                let move_vec = scale_2d(dir_from_theta(being.rotation), being.speed / s);
+                let (newi, newj) = add_2d(being.pos, move_vec);
 
-                let r = ball.radius;
+                let r = being.radius;
 
                 if !oob((newi, newj), r) {
-                    ball.pos = (newi, newj);
+                    being.pos = (newi, newj);
                 }
                 // TEMP TEMP TEMP TEMP NOTICE TEMP
                 else {
                     let (newi, newj) = (rng.sample(rdist), rng.sample(rdist));
-                    ball.pos = (newi, newj);
+                    being.pos = (newi, newj);
                 }
             });
         }
@@ -266,14 +272,14 @@ impl World {
 
                             for id2 in &self.being_cells[nij] {
                                 if !(*id1 == *id2) {
-                                    let (b1, b2) = self.balls.get2_mut(*id1, *id2);
+                                    let (b1, b2) = self.beings.get2_mut(*id1, *id2);
 
                                     let b1_ref = b1.as_ref().unwrap();
                                     let b2_ref = b2.as_ref().unwrap();
 
-                                    if balls_collide(b1_ref, b2_ref) {
+                                    if beings_collide(b1_ref, b2_ref) {
                                         // println!("{:?}    {:?}", b1_ref.pos, b2_ref.pos);
-                                        self.ball_collision_count += 1;
+                                        self.being_collision_count += 1;
 
                                         let (i1, j1) = b1_ref.pos;
                                         let (i2, j2) = b2.unwrap().pos;
@@ -289,7 +295,7 @@ impl World {
                             }
 
                             for ob_id in &self.obstruct_cells[nij] {
-                                let b = self.balls.get_mut(*id1); // see this line here happens 3 times for some reason because the bc won't allow non overlapping borrows from the same vec even if i use a splitmut method the second time but i was assured the compiler compiles this away so who knows. for later.
+                                let b = self.beings.get_mut(*id1); // see this line here happens 3 times for some reason because the bc won't allow non overlapping borrows from the same vec even if i use a splitmut method the second time but i was assured the compiler compiles this away so who knows. for later.
                                 let o = self.obstructs.get_mut(*ob_id);
 
                                 let b_ref = b.as_ref().unwrap();
@@ -307,7 +313,7 @@ impl World {
                             }
 
                             for f_id in &self.food_cells[nij] {
-                                let b = self.balls.get_mut(*id1);
+                                let b = self.beings.get_mut(*id1);
                                 let f = self.foods.get_mut(*f_id);
 
                                 let b_ref = b.as_ref().unwrap();
@@ -325,7 +331,7 @@ impl World {
     }
 
     pub fn update_cells(&mut self) {
-        for b in &mut self.balls {
+        for b in &mut self.beings {
             let new_pos = add_2d(b.pos, b.pos_update);
 
             if !oob(new_pos, b.radius) {
@@ -382,14 +388,21 @@ impl World {
         self.obstruct_deaths.clear();
     }
 
+    pub fn tire_beings (&mut self, tire_rate: f32) {
+        for b in &mut self.beings {
+            b.energy *= tire_rate
+        }
+    }
 
     pub fn step(&mut self, substeps: usize) {
         for _ in 0..substeps {
-            self.move_balls(substeps);
+            self.move_beings(substeps);
             self.check_collisions(self.age);
             self.update_cells();
 
         }
+
+        self.tire_beings(0.99);
         self.age_foods(0.999);
         self.age_obstructs(0.999);
         
@@ -398,7 +411,7 @@ impl World {
 }
 
 struct MainState {
-    ball_instances: graphics::InstanceArray,
+    being_instances: graphics::InstanceArray,
     world: World,
 }
 
@@ -408,7 +421,7 @@ impl MainState {
         let mut instances = graphics::InstanceArray::new(ctx, image);
         instances.resize(ctx, 100);
         Ok(MainState {
-            ball_instances: instances,
+            being_instances: instances,
             world: w,
         })
     }
@@ -427,7 +440,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
     fn draw(&mut self, _ctx: &mut Context) -> Result<(), ggez::GameError> {
         let mut canvas = graphics::Canvas::from_frame(_ctx, Color::BLACK);
 
-        self.ball_instances.set(self.world.balls.iter().map(|b| {
+        self.being_instances.set(self.world.beings.iter().map(|b| {
             let (x, y) = b.pos;
             graphics::DrawParam::new()
                 .dest(Vec2::new(x, y))
@@ -436,7 +449,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
         }));
 
         let param = graphics::DrawParam::new();
-        canvas.draw(&self.ball_instances, param);
+        canvas.draw(&self.being_instances, param);
         canvas.finish(_ctx)
     }
 }
@@ -447,29 +460,31 @@ pub fn run() -> GameResult {
     let rdist = Uniform::new(1., (W_SIZE as f32) - 1.);
     let mut rng = thread_rng();
 
-    for i in 1..10000 {
-        world.add_ball(
+    for i in 1..500 {
+        world.add_being(
             2.,
             (rng.sample(rdist), rng.sample(rdist)),
             rng.sample(rdist),
+
             0.1,
+            5.
         );
     }
 
-    // for i in 1..5000 {
-    //     world.add_obstruct((rng.sample(rdist), rng.sample(rdist)));
-    // }
+    for i in 1..5000 {
+        world.add_obstruct((rng.sample(rdist), rng.sample(rdist)));
+    }
 
-    // for i in 1..2000 {
-    //     world.add_food((rng.sample(rdist), rng.sample(rdist)))
-    // }
+    for i in 1..2000 {
+        world.add_food((rng.sample(rdist), rng.sample(rdist)))
+    }
 
-    // if cfg!(debug_assertions) && env::var("yes_i_really_want_debug_mode").is_err() {
-    //     eprintln!(
-    //         "Note: Release mode will improve performance greatly.\n    \
-    //          e.g. use `cargo run --example spritebatch --release`"
-    //     );
-    // }
+    if cfg!(debug_assertions) && env::var("yes_i_really_want_debug_mode").is_err() {
+        eprintln!(
+            "Note: Release mode will improve performance greatly.\n    \
+             e.g. use `cargo run --example spritebatch --release`"
+        );
+    }
 
     let resource_dir = if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
         let mut path = path::PathBuf::from(manifest_dir);
