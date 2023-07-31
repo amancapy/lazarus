@@ -137,8 +137,8 @@ struct World {
     obstruct_collision_count: usize,
     food_collision_count: usize,
 
-    food_deaths: Vec<usize>,
-    obstruct_deaths: Vec<usize>,
+    food_deaths: Vec<(usize, (f32, f32))>,
+    obstruct_deaths: Vec<(usize, (f32, f32))>,
 
     age: usize,
 }
@@ -350,11 +350,16 @@ impl World {
         for f in &mut self.foods {
             f.age *= decay_rate;
             if f.age < 0.05 {
-                self.food_deaths.push(f.id);
+                self.food_deaths.push((f.id, f.pos));
+
             }
         }
 
-        
+        for f in &self.food_deaths {
+            self.foods.retain(|x| x.id != f.0);
+        }
+
+        self.food_deaths.clear();
     }
 
     pub fn age_obstructs (&mut self, decay_rate: f32) {
@@ -362,10 +367,17 @@ impl World {
             o.age *= decay_rate;
 
             if o.age < 0.05 {
-                self.obstruct_deaths.push(o.id);
+                self.obstruct_deaths.push((o.id, o.pos));
             }
         }
+
+        for o in &self.obstruct_deaths {
+            self.obstructs.retain(|x| x.id != o.0);
+        }
+
+        self.obstruct_deaths.clear();
     }
+
 
     pub fn step(&mut self, substeps: usize) {
         for _ in 0..substeps {
@@ -401,8 +413,9 @@ impl event::EventHandler<ggez::GameError> for MainState {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
         self.world.step(1);
         if self.world.age % HZ == 0 {
-            println!("{} {}", self.world.age, ctx.time.fps());
+            println!("{} {} {}", self.world.age, ctx.time.fps(), self.world.obstructs.len());
         }
+        
         Ok(())
     }
 
@@ -429,7 +442,7 @@ pub fn run() -> GameResult {
     let rdist = Uniform::new(1., (W_SIZE as f32) - 1.);
     let mut rng = thread_rng();
 
-    for i in 1..500 {
+    for i in 1..50000 {
         world.add_ball(
             2.,
             (rng.sample(rdist), rng.sample(rdist)),
