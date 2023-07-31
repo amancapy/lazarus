@@ -357,6 +357,7 @@ impl World {
 
         for f in &self.food_deaths {
             self.foods.retain(|x| x.id != f.0);
+            self.food_cells[two_to_one(pos_to_cell(f.1))].retain(|x| *x != f.0);
         }
 
         self.food_deaths.clear();
@@ -373,6 +374,7 @@ impl World {
 
         for o in &self.obstruct_deaths {
             self.obstructs.retain(|x| x.id != o.0);
+            self.obstruct_cells[two_to_one(pos_to_cell(o.1))].retain(|x| *x != o.0);
         }
 
         self.obstruct_deaths.clear();
@@ -415,7 +417,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
         if self.world.age % HZ == 0 {
             println!("{} {} {}", self.world.age, ctx.time.fps(), self.world.obstructs.len());
         }
-        
+
         Ok(())
     }
 
