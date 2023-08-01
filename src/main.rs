@@ -54,7 +54,7 @@ pub fn pos_to_cell(pos: (f32, f32)) -> (usize, usize) {
 }
 
 pub fn lef_border_trespass(i: f32, r: f32) -> bool {
-    i - r < 1.
+    i - r <= 1.
 }
 
 pub fn rig_border_trespass(i: f32, r: f32) -> bool {
@@ -62,7 +62,7 @@ pub fn rig_border_trespass(i: f32, r: f32) -> bool {
 }
 
 pub fn top_border_trespass(j: f32, r: f32) -> bool {
-    j - r < 1.
+    j - r <= 1.
 }
 
 pub fn bot_border_trespass(j: f32, r: f32) -> bool {
@@ -119,6 +119,9 @@ pub struct Obstruct {
 pub struct Food {
     pos: (f32, f32),
     age: f32,
+    val: f32,
+    eaten: bool,
+
     id: usize,
 }
 
@@ -212,7 +215,11 @@ impl World {
         self.foods.push(Food {
             pos: pos,
             age: 5.,
+            val: 1.,
+            eaten: false,
+
             id: self.food_id,
+
         });
 
         let ij = two_to_one((i, j));
@@ -236,7 +243,7 @@ impl World {
                 let r = being.radius;
 
                 if !oob((newi, newj), r) {
-                    being.pos = (newi, newj);
+                    being.pos_update = move_vec;
                 }
                 // TEMP TEMP TEMP TEMP NOTICE TEMP
                 else {
@@ -278,7 +285,6 @@ impl World {
                                     let b2_ref = b2.as_ref().unwrap();
 
                                     if beings_collide(b1_ref, b2_ref) {
-                                        // println!("{:?}    {:?}", b1_ref.pos, b2_ref.pos);
                                         self.being_collision_count += 1;
 
                                         let (i1, j1) = b1_ref.pos;
@@ -317,9 +323,12 @@ impl World {
                                 let f = self.foods.get_mut(*f_id);
 
                                 let b_ref = b.as_ref().unwrap();
+                                let f_ref = f.as_ref().unwrap();
 
-                                if food_collide(b_ref, f.as_ref().unwrap()) {
-                                    // food.do_something(), this one along with beings dying ruins the sequential id scheme, sol here.
+                                if food_collide(b_ref, f_ref) && !f_ref.eaten {
+                                    b.unwrap().energy += f_ref.val;
+                                    self.food_deaths.push((f_ref.id, f_ref.pos));
+                                    f.unwrap().eaten = true;
                                     self.food_collision_count += 1;
                                 }
                             }
@@ -352,6 +361,23 @@ impl World {
                 }
             }
         }
+    }
+
+    pub fn tire_beings (&mut self, tire_rate: f32) {
+        for b in &mut self.beings {
+            b.energy -= tire_rate;
+
+            if b.energy <= 0. {
+                self.being_deaths.push((b.id, b.pos));
+            }
+        }
+
+        for b in &self.being_deaths {
+            self.beings.retain(|x| x.id != b.0);
+            self.being_cells[two_to_one(pos_to_cell(b.1))].retain(|x| *x != b.0);
+        }
+
+        self.being_deaths.clear();
     }
 
     pub fn age_foods(&mut self, decay_rate: f32) {
@@ -388,11 +414,6 @@ impl World {
         self.obstruct_deaths.clear();
     }
 
-    pub fn tire_beings (&mut self, tire_rate: f32) {
-        for b in &mut self.beings {
-            b.energy *= tire_rate
-        }
-    }
 
     pub fn step(&mut self, substeps: usize) {
         for _ in 0..substeps {
@@ -402,7 +423,7 @@ impl World {
 
         }
 
-        self.tire_beings(0.99);
+        self.tire_beings(0.001);
         self.age_foods(0.999);
         self.age_obstructs(0.999);
         
@@ -429,7 +450,7 @@ impl MainState {
 
 impl event::EventHandler<ggez::GameError> for MainState {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
-        self.world.step(4);
+        self.world.step(1);
         if self.world.age % HZ == 0 {
             println!("{} {} {}", self.world.age, ctx.time.fps(), self.world.obstructs.len());
         }
@@ -460,31 +481,31 @@ pub fn run() -> GameResult {
     let rdist = Uniform::new(1., (W_SIZE as f32) - 1.);
     let mut rng = thread_rng();
 
-    for i in 1..500 {
+    for i in 1..50000 {
         world.add_being(
             2.,
             (rng.sample(rdist), rng.sample(rdist)),
-            rng.sample(rdist),
+            rng.gen_range(-10.0..10.),
 
             0.1,
             5.
         );
     }
 
-    for i in 1..5000 {
-        world.add_obstruct((rng.sample(rdist), rng.sample(rdist)));
-    }
+    // for i in 1..5000 {
+    //     world.add_obstruct((rng.sample(rdist), rng.sample(rdist)));
+    // }
 
-    for i in 1..2000 {
-        world.add_food((rng.sample(rdist), rng.sample(rdist)))
-    }
+    // for i in 1..2000 {
+    //     world.add_food((rng.sample(rdist), rng.sample(rdist)))
+    // }
 
-    if cfg!(debug_assertions) && env::var("yes_i_really_want_debug_mode").is_err() {
-        eprintln!(
-            "Note: Release mode will improve performance greatly.\n    \
-             e.g. use `cargo run --example spritebatch --release`"
-        );
-    }
+    // if cfg!(debug_assertions) && env::var("yes_i_really_want_debug_mode").is_err() {
+    //     eprintln!(
+    //         "Note: Release mode will improve performance greatly.\n    \
+    //          e.g. use `cargo run --example spritebatch --release`"
+    //     );
+    // }
 
     let resource_dir = if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
         let mut path = path::PathBuf::from(manifest_dir);
@@ -502,6 +523,7 @@ pub fn run() -> GameResult {
             
             ..Default::default()
         });
+
     let (mut ctx, event_loop) = cb.build()?;
 
     let state = MainState::new(&mut ctx, world)?;
@@ -509,5 +531,5 @@ pub fn run() -> GameResult {
 }
 
 pub fn main() {
-    run();
+    let _ = run();
 }
