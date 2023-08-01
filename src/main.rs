@@ -2,13 +2,11 @@ use ggez::conf::WindowMode;
 use ggez::event;
 use ggez::glam::*;
 use ggez::graphics::{self, Color};
-use ggez::winit::window::WindowBuilder;
 use ggez::{Context, GameResult};
 use rand::{distributions::Uniform, prelude::*};
-use rayon::prelude::*;
-use splitmut::SplitMut;
+use slotmap::DefaultKey;
+use slotmap::SlotMap;
 use std::env;
-use std::f32::consts::TAU;
 use std::path;
 
 const W_SIZE: usize = 1000;
@@ -111,14 +109,14 @@ pub struct Food {
     id: usize,
 }
 
-struct World {
-    beings: Vec<Being>,
-    obstructs: Vec<Obstruct>,
-    foods: Vec<Food>,
+pub struct World {
+    beings: SlotMap<DefaultKey, Being>,
+    obstructs: SlotMap<DefaultKey, Obstruct>,
+    foods: SlotMap<DefaultKey, Food>,
 
-    being_cells: Vec<Vec<usize>>,
-    obstruct_cells: Vec<Vec<usize>>,
-    food_cells: Vec<Vec<usize>>,
+    being_cells: Vec<Vec<DefaultKey>>,
+    obstruct_cells: Vec<Vec<DefaultKey>>,
+    food_cells: Vec<Vec<DefaultKey>>,
 
     being_id: usize,
     ob_id: usize,
@@ -128,20 +126,22 @@ struct World {
     obstruct_collision_count: usize,
     food_collision_count: usize,
 
-    being_deaths: Vec<(usize, Vec2)>,
-    obstruct_deaths: Vec<(usize, Vec2)>,
-    food_deaths: Vec<(usize, Vec2)>,
+    being_deaths: Vec<(DefaultKey, Vec2)>,
+    obstruct_deaths: Vec<(DefaultKey, Vec2)>,
+    food_deaths: Vec<(DefaultKey, Vec2)>,
 
     age: usize,
+
+
 }
 
 impl World {
     pub fn new(n_cells: usize) -> Self {
         assert!(W_SIZE % n_cells == 0);
         World {
-            beings: vec![],
-            obstructs: vec![],
-            foods: vec![],
+            beings: SlotMap::new(),
+            obstructs: SlotMap::new(),
+            foods: SlotMap::new(),
 
             being_cells: (0..(n_cells + 1).pow(2)).map(|_| Vec::new()).collect(),
             obstruct_cells: (0..(n_cells + 1).pow(2)).map(|_| Vec::new()).collect(),
@@ -160,12 +160,14 @@ impl World {
             obstruct_deaths: vec![],
 
             age: 0,
+
         }
     }
 
     pub fn add_being(&mut self, radius: f32, pos: Vec2, rotation: f32, speed: f32, health: f32) {
         let (i, j) = pos_to_cell(pos);
-        self.beings.push(Being {
+
+        let being = Being {
             radius: radius,
             pos: pos,
             rotation: rotation,
@@ -176,29 +178,35 @@ impl World {
             id: self.being_id,
 
             pos_update: Vec2::new(0., 0.),
-        });
+        };
+
+        let k = self.beings.insert(being);
         let ij = two_to_one((i, j));
-        self.being_cells[ij].push(self.being_id);
+        self.being_cells[ij].push(k);
         self.being_id += 1;
     }
 
     pub fn add_obstruct(&mut self, pos: Vec2) {
         let (i, j) = pos_to_cell(pos);
-        self.obstructs.push(Obstruct {
+
+        let obstruct = Obstruct {
             radius: 2.,
             pos: pos,
             age: 5.,
             id: self.ob_id,
-        });
+        };
+
+        let k = self.obstructs.insert(obstruct);
 
         let ij = two_to_one((i, j));
-        self.obstruct_cells[ij].push(self.ob_id);
+        self.obstruct_cells[ij].push(k);
         self.ob_id += 1;
     }
 
     pub fn add_food(&mut self, pos: Vec2) {
         let (i, j) = pos_to_cell(pos);
-        self.foods.push(Food {
+
+        let food = Food {
             pos: pos,
             age: 5.,
             val: 1.,
@@ -206,12 +214,15 @@ impl World {
 
             id: self.food_id,
 
-        });
+        };
+
+        let k = self.foods.insert(food);
 
         let ij = two_to_one((i, j));
-        self.food_cells[ij].push(self.food_id);
+        self.food_cells[ij].push(k);
         self.food_id += 1;
     }
+
     pub fn move_beings(&mut self, substeps: usize) {
         let s = substeps as f32;
 
@@ -222,7 +233,7 @@ impl World {
         // REMEMBER TO POS_UPDATE HERE INSTEAD OF ASYNC UPDATE (CURRENT)
         for _ in 0..substeps {
             let w = W_SIZE as f32;
-            self.beings.iter_mut().for_each(|being| {
+            self.beings.iter_mut().for_each(|(k, being)| {
                 let move_vec = dir_from_theta(being.rotation) * (being.speed / s); 
                 let newij = being.pos + move_vec;
 
@@ -264,23 +275,20 @@ impl World {
                             let nij = two_to_one((ni, nj));
 
                             for id2 in &self.being_cells[nij] {
-                                if !(*id1 == *id2) {
-                                    let (b1, b2) = self.beings.get2_mut(*id1, *id2);
+                                if !(id1 == id2) {
+                                    let [b1, b2] = self.beings.get_disjoint_mut([*id1, *id2]).unwrap();
 
-                                    let b1_ref = b1.as_ref().unwrap();
-                                    let b2_ref = b2.as_ref().unwrap();
-
-                                    if beings_collide(b1_ref, b2_ref) {
+                                    if beings_collide(b1, b2) {
                                         self.being_collision_count += 1;
 
-                                        let ij1 = b1_ref.pos;
-                                        let ij2 = b2.unwrap().pos;
+                                        let ij1 = b1.pos;
+                                        let ij2 = b2.pos;
                                         let c1c2 = ij2 - ij1;
                                         let half_dist = c1c2 * -0.5;
 
                                         let new_pos = ij1 + half_dist;
-                                        if !oob(new_pos, b1_ref.radius) {
-                                            b1.unwrap().pos_update = half_dist;
+                                        if !oob(new_pos, b1.radius) {
+                                            b1.pos_update += half_dist;
                                         }
                                     }
                                 }
@@ -300,21 +308,23 @@ impl World {
                                     let c1c2 = ij2 - ij1;
                                     let half_dist = c1c2 * -0.5;
 
-                                    b.unwrap().pos_update = half_dist;
+                                    b.unwrap().pos_update += half_dist;
                                 }
                             }
 
                             for f_id in &self.food_cells[nij] {
-                                let b = self.beings.get_mut(*id1);
-                                let f = self.foods.get_mut(*f_id);
+
+                                let b = self.beings.get_mut(*id1); // CAN'T INDEX BY ID ANYMORE :(
+                                let f = self.foods.get_mut(*f_id); //  ^
 
                                 let b_ref = b.as_ref().unwrap();
                                 let f_ref = f.as_ref().unwrap();
 
                                 if food_collide(b_ref, f_ref) && !f_ref.eaten {
                                     b.unwrap().energy += f_ref.val;
-                                    self.food_deaths.push((f_ref.id, f_ref.pos));
+                                    self.food_deaths.push((*f_id, f_ref.pos));
                                     f.unwrap().eaten = true;
+
                                     self.food_collision_count += 1;
                                 }
                             }
@@ -326,7 +336,7 @@ impl World {
     }
 
     pub fn update_cells(&mut self) {
-        for b in &mut self.beings {
+        for (k, b) in &mut self.beings {
             let new_pos = b.pos + b.pos_update;
 
             if !oob(new_pos, b.radius) {
@@ -342,24 +352,24 @@ impl World {
                     let oij = two_to_one((oi, oj));
                     let ij = two_to_one((i, j));
 
-                    self.being_cells[oij].retain(|x| x != &b.id);
-                    self.being_cells[ij].push(b.id);
+                    self.being_cells[oij].retain(|x| *x != k);
+                    self.being_cells[ij].push(k);
                 }
             }
         }
     }
 
     pub fn tire_beings (&mut self, tire_rate: f32) {
-        for b in &mut self.beings {
+        for (k, b) in &mut self.beings {
             b.energy -= tire_rate;
 
             if b.energy <= 0. {
-                self.being_deaths.push((b.id, b.pos));
+                self.being_deaths.push((k, b.pos));
             }
         }
 
         for b in &self.being_deaths {
-            self.beings.retain(|x| x.id != b.0);
+            self.beings.remove(b.0);
             self.being_cells[two_to_one(pos_to_cell(b.1))].retain(|x| *x != b.0);
         }
 
@@ -367,33 +377,35 @@ impl World {
     }
 
     pub fn age_foods(&mut self, decay_rate: f32) {
-        for f in &mut self.foods {
+        for (k, f) in &mut self.foods {
             f.age *= decay_rate;
             if f.age < 0.05 {
-                self.food_deaths.push((f.id, f.pos));
+                self.food_deaths.push((k, f.pos));
 
             }
         }
 
         for f in &self.food_deaths {
-            self.foods.retain(|x| x.id != f.0);
+            self.foods.remove(f.0);
+
             self.food_cells[two_to_one(pos_to_cell(f.1))].retain(|x| *x != f.0);
+
         }
 
         self.food_deaths.clear();
     }
 
     pub fn age_obstructs (&mut self, decay_rate: f32) {
-        for o in &mut self.obstructs {
+        for (k, o) in &mut self.obstructs {
             o.age *= decay_rate;
 
             if o.age < 0.05 {
-                self.obstruct_deaths.push((o.id, o.pos));
+                self.obstruct_deaths.push((k, o.pos));
             }
         }
 
         for o in &self.obstruct_deaths {
-            self.obstructs.retain(|x| x.id != o.0);
+            self.obstructs.remove(o.0);
             self.obstruct_cells[two_to_one(pos_to_cell(o.1))].retain(|x| *x != o.0);
         }
 
@@ -417,6 +429,8 @@ impl World {
     }
 }
 
+
+
 struct MainState {
     being_instances: graphics::InstanceArray,
     world: World,
@@ -424,9 +438,9 @@ struct MainState {
 
 impl MainState {
     fn new(ctx: &mut Context, w: World) -> GameResult<MainState> {
-        let image = graphics::Image::from_path(ctx, "/pacman.jpeg")?;
+        let image = graphics::Image::from_path(ctx, "/circle.png")?;
         let mut instances = graphics::InstanceArray::new(ctx, image);
-        instances.resize(ctx, 100);
+
         Ok(MainState {
             being_instances: instances,
             world: w,
@@ -447,11 +461,11 @@ impl event::EventHandler<ggez::GameError> for MainState {
     fn draw(&mut self, _ctx: &mut Context) -> Result<(), ggez::GameError> {
         let mut canvas = graphics::Canvas::from_frame(_ctx, Color::BLACK);
 
-        self.being_instances.set(self.world.beings.iter().map(|b| {
+        self.being_instances.set(self.world.beings.iter().map(|(k, b)| {
             let xy = b.pos;
             graphics::DrawParam::new()
                 .dest(xy.clone())
-                .scale(Vec2::new(0.01, 0.01))
+                .scale(Vec2::new(1., 1.) / 400. * 2.)
                 .rotation(b.rotation)
         }));
 
@@ -461,19 +475,19 @@ impl event::EventHandler<ggez::GameError> for MainState {
     }
 }
 
-pub fn run() -> GameResult {
-    assert!(W_SIZE % N_CELLS == 0);
+
+pub fn get_world () -> World {
     let mut world = World::new(N_CELLS);
     let rdist = Uniform::new(1., (W_SIZE as f32) - 1.);
     let mut rng = thread_rng();
 
-    for i in 1..5000 {
+    for i in 1..500 {
         world.add_being(
             2.,
             Vec2::new(rng.sample(rdist), rng.sample(rdist)),
             rng.gen_range(-10.0..10.),
 
-            0.1,
+            0.05,
             5.
         );
     }
@@ -485,6 +499,16 @@ pub fn run() -> GameResult {
     for i in 1..2000 {
         world.add_food(Vec2::new(rng.sample(rdist), rng.sample(rdist)))
     }
+
+    world
+}
+
+
+pub fn run() -> GameResult {
+    assert!(W_SIZE % N_CELLS == 0);
+
+    let world = get_world();
+
 
     // if cfg!(debug_assertions) && env::var("yes_i_really_want_debug_mode").is_err() {
     //     eprintln!(
@@ -516,6 +540,17 @@ pub fn run() -> GameResult {
     event::run(ctx, event_loop, state)
 }
 
+pub fn gauge(n: usize) {
+    let mut w = get_world();
+    for i in 0..n {
+        w.step(1);
+        if i % HZ == 0 {
+            println!("{}", i);
+        }
+    }
+}
+
 pub fn main() {
-    let _ = run();
+    // gauge(1000000);
+    run();
 }
