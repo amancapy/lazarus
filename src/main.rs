@@ -7,6 +7,7 @@ use rand::{distributions::Uniform, prelude::*};
 use slotmap::DefaultKey;
 use slotmap::SlotMap;
 use std::env;
+use std::ops::Index;
 use std::path;
 
 const W_SIZE: usize = 1000;
@@ -421,9 +422,9 @@ impl World {
 
         }
 
-        self.tire_beings(0.001);
-        self.age_foods(0.999);
-        self.age_obstructs(0.999);
+        self.tire_beings(0.);
+        self.age_foods(1.);
+        self.age_obstructs(1.);
         
         self.age += 1;
     }
@@ -452,7 +453,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
         self.world.step(1);
         if self.world.age % HZ == 0 {
-            println!("{} {} {}", self.world.age, ctx.time.fps(), self.world.obstructs.len());
+            println!("{} {} {}", self.world.age, ctx.time.fps(), self.world.beings.len());
         }
 
         Ok(())
@@ -481,24 +482,24 @@ pub fn get_world () -> World {
     let rdist = Uniform::new(1., (W_SIZE as f32) - 1.);
     let mut rng = thread_rng();
 
-    for i in 1..500 {
+    for i in 1..50000 {
         world.add_being(
             2.,
             Vec2::new(rng.sample(rdist), rng.sample(rdist)),
             rng.gen_range(-10.0..10.),
 
             0.05,
-            5.
+            1.
         );
     }
 
-    for i in 1..5000 {
-        world.add_obstruct(Vec2::new(rng.sample(rdist), rng.sample(rdist)));
-    }
+    // for i in 1..5000 {
+    //     world.add_obstruct(Vec2::new(rng.sample(rdist), rng.sample(rdist)));
+    // }
 
-    for i in 1..2000 {
-        world.add_food(Vec2::new(rng.sample(rdist), rng.sample(rdist)))
-    }
+    // for i in 1..2000 {
+    //     world.add_food(Vec2::new(rng.sample(rdist), rng.sample(rdist)))
+    // }
 
     world
 }
