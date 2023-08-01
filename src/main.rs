@@ -17,38 +17,23 @@ const CELL_SIZE: usize = W_SIZE / N_CELLS;
 const W_FLOAT: f32 = W_SIZE as f32;
 const HZ: usize = 60;
 
-fn add_2d((i, j): (f32, f32), (k, l): (f32, f32)) -> (f32, f32) {
-    (i + k, j + l)
-}
-
-fn scale_2d((i, j): (f32, f32), c: f32) -> (f32, f32) {
-    (i * c, j * c)
-}
-
-fn dist_2d((i1, j1): (f32, f32), (i2, j2): (f32, f32)) -> f32 {
-    ((i1 - i2).powi(2) + (j1 - j2).powi(2)).sqrt()
-}
-
-fn one_to_two(ij: usize) -> (usize, usize) {
-    ((ij - ij % W_SIZE) / W_SIZE, ij % W_SIZE)
-}
 
 fn two_to_one((i, j): (usize, usize)) -> usize {
     i * N_CELLS + j
 }
 
-fn dir_from_theta(theta: f32) -> (f32, f32) {
-    (theta.cos(), theta.sin())
+fn dir_from_theta(theta: f32) -> Vec2 {
+    Vec2::new(theta.cos(), theta.sin())
 }
 
 fn same_index((a, b): (usize, usize), (c, d): (usize, usize)) -> bool {
     a == c && b == d
 }
 
-pub fn pos_to_cell(pos: (f32, f32)) -> (usize, usize) {
+pub fn pos_to_cell(pos: Vec2) -> (usize, usize) {
     let c = CELL_SIZE as f32;
-    let i = ((pos.0 - (pos.0 % c)) / c) as usize;
-    let j = ((pos.1 - (pos.1 % c)) / c) as usize;
+    let i = ((pos[0] - (pos[0] % c)) / c) as usize;
+    let j = ((pos[1] - (pos[1] % c)) / c) as usize;
 
     (i, j)
 }
@@ -69,7 +54,8 @@ pub fn bot_border_trespass(j: f32, r: f32) -> bool {
     j + r >= W_FLOAT - 1.
 }
 
-pub fn oob((i, j): (f32, f32), r: f32) -> bool {
+pub fn oob(ij: Vec2, r: f32) -> bool {
+    let (i, j) = (ij[0], ij[1]);
     lef_border_trespass(i, r)
         || rig_border_trespass(i, r)
         || top_border_trespass(j, r)
@@ -77,20 +63,20 @@ pub fn oob((i, j): (f32, f32), r: f32) -> bool {
 }
 
 pub fn beings_collide(b1: &Being, b2: &Being) -> bool {
-    let centre_dist = dist_2d(b1.pos, b2.pos);
+    let centre_dist = b1.pos.distance(b2.pos);
     let (r1, r2) = (b1.radius, b2.radius);
 
     centre_dist <= r1 + r2
 }
 
 pub fn obstruct_collide(b: &Being, o: &Obstruct) -> bool {
-    let centre_dist = dist_2d(b.pos, o.pos);
+    let centre_dist = b.pos.distance(o.pos);
     let (r1, r2) = (b.radius, o.radius);
     centre_dist <= r1 + r2
 }
 
 pub fn food_collide(b: &Being, f: &Food) -> bool {
-    let centre_dist = dist_2d(b.pos, f.pos);
+    let centre_dist = b.pos.distance(f.pos);
     let (r1, r2) = (b.radius, 1.);
     centre_dist <= r1 + r2
 }
@@ -98,7 +84,7 @@ pub fn food_collide(b: &Being, f: &Food) -> bool {
 #[derive(Debug)]
 pub struct Being {
     radius: f32,
-    pos: (f32, f32),
+    pos: Vec2,
     rotation: f32,
     energy: f32,
 
@@ -106,18 +92,18 @@ pub struct Being {
     cell: (usize, usize),
     id: usize,
 
-    pos_update: (f32, f32),
+    pos_update: Vec2,
 }
 
 pub struct Obstruct {
     radius: f32,
-    pos: (f32, f32),
+    pos: Vec2,
     age: f32,
     id: usize,
 }
 
 pub struct Food {
-    pos: (f32, f32),
+    pos: Vec2,
     age: f32,
     val: f32,
     eaten: bool,
@@ -142,9 +128,9 @@ struct World {
     obstruct_collision_count: usize,
     food_collision_count: usize,
 
-    being_deaths: Vec<(usize, (f32, f32))>,
-    obstruct_deaths: Vec<(usize, (f32, f32))>,
-    food_deaths: Vec<(usize, (f32, f32))>,
+    being_deaths: Vec<(usize, Vec2)>,
+    obstruct_deaths: Vec<(usize, Vec2)>,
+    food_deaths: Vec<(usize, Vec2)>,
 
     age: usize,
 }
@@ -177,7 +163,7 @@ impl World {
         }
     }
 
-    pub fn add_being(&mut self, radius: f32, pos: (f32, f32), rotation: f32, speed: f32, health: f32) {
+    pub fn add_being(&mut self, radius: f32, pos: Vec2, rotation: f32, speed: f32, health: f32) {
         let (i, j) = pos_to_cell(pos);
         self.beings.push(Being {
             radius: radius,
@@ -189,14 +175,14 @@ impl World {
             cell: (i, j),
             id: self.being_id,
 
-            pos_update: (0., 0.),
+            pos_update: Vec2::new(0., 0.),
         });
         let ij = two_to_one((i, j));
         self.being_cells[ij].push(self.being_id);
         self.being_id += 1;
     }
 
-    pub fn add_obstruct(&mut self, pos: (f32, f32)) {
+    pub fn add_obstruct(&mut self, pos: Vec2) {
         let (i, j) = pos_to_cell(pos);
         self.obstructs.push(Obstruct {
             radius: 2.,
@@ -210,7 +196,7 @@ impl World {
         self.ob_id += 1;
     }
 
-    pub fn add_food(&mut self, pos: (f32, f32)) {
+    pub fn add_food(&mut self, pos: Vec2) {
         let (i, j) = pos_to_cell(pos);
         self.foods.push(Food {
             pos: pos,
@@ -237,18 +223,18 @@ impl World {
         for _ in 0..substeps {
             let w = W_SIZE as f32;
             self.beings.iter_mut().for_each(|being| {
-                let move_vec = scale_2d(dir_from_theta(being.rotation), being.speed / s);
-                let (newi, newj) = add_2d(being.pos, move_vec);
+                let move_vec = dir_from_theta(being.rotation) * (being.speed / s); 
+                let newij = being.pos + move_vec;
 
                 let r = being.radius;
 
-                if !oob((newi, newj), r) {
+                if !oob(newij, r) {
                     being.pos_update = move_vec;
                 }
-                // TEMP TEMP TEMP TEMP NOTICE TEMP
-                else {
-                    let (newi, newj) = (rng.sample(rdist), rng.sample(rdist));
-                    being.pos = (newi, newj);
+
+                else { // TEMP TEMP TEMP TEMP NOTICE TEMP
+                    let newij = Vec2::new(rng.sample(rdist), rng.sample(rdist));
+                    being.pos = newij;
                 }
             });
         }
@@ -287,12 +273,12 @@ impl World {
                                     if beings_collide(b1_ref, b2_ref) {
                                         self.being_collision_count += 1;
 
-                                        let (i1, j1) = b1_ref.pos;
-                                        let (i2, j2) = b2.unwrap().pos;
-                                        let c1c2 = (i2 - i1, j2 - j1);
-                                        let half_dist = scale_2d(c1c2, -0.5);
+                                        let ij1 = b1_ref.pos;
+                                        let ij2 = b2.unwrap().pos;
+                                        let c1c2 = ij2 - ij1;
+                                        let half_dist = c1c2 * -0.5;
 
-                                        let new_pos = add_2d((i1, j1), half_dist);
+                                        let new_pos = ij1 + half_dist;
                                         if !oob(new_pos, b1_ref.radius) {
                                             b1.unwrap().pos_update = half_dist;
                                         }
@@ -308,11 +294,11 @@ impl World {
 
                                 if obstruct_collide(b_ref, o.as_ref().unwrap()) {
                                     self.obstruct_collision_count += 1;
-                                    let (i1, j1) = b_ref.pos;
-                                    let (i2, j2) = o.unwrap().pos;
+                                    let ij1 = b_ref.pos;
+                                    let ij2 = o.unwrap().pos;
 
-                                    let c1c2 = (i2 - i1, j2 - j1);
-                                    let half_dist = scale_2d(c1c2, -0.5);
+                                    let c1c2 = ij2 - ij1;
+                                    let half_dist = c1c2 * -0.5;
 
                                     b.unwrap().pos_update = half_dist;
                                 }
@@ -341,11 +327,11 @@ impl World {
 
     pub fn update_cells(&mut self) {
         for b in &mut self.beings {
-            let new_pos = add_2d(b.pos, b.pos_update);
+            let new_pos = b.pos + b.pos_update;
 
             if !oob(new_pos, b.radius) {
                 b.pos = new_pos;
-                b.pos_update = (0., 0.);
+                b.pos_update = Vec2::new(0., 0.);
 
                 let (oi, oj) = b.cell;
                 let (i, j) = pos_to_cell(new_pos);
@@ -462,9 +448,9 @@ impl event::EventHandler<ggez::GameError> for MainState {
         let mut canvas = graphics::Canvas::from_frame(_ctx, Color::BLACK);
 
         self.being_instances.set(self.world.beings.iter().map(|b| {
-            let (x, y) = b.pos;
+            let xy = b.pos;
             graphics::DrawParam::new()
-                .dest(Vec2::new(x, y))
+                .dest(xy.clone())
                 .scale(Vec2::new(0.01, 0.01))
                 .rotation(b.rotation)
         }));
@@ -484,7 +470,7 @@ pub fn run() -> GameResult {
     for i in 1..50000 {
         world.add_being(
             2.,
-            (rng.sample(rdist), rng.sample(rdist)),
+            Vec2::new(rng.sample(rdist), rng.sample(rdist)),
             rng.gen_range(-10.0..10.),
 
             0.1,
