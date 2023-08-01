@@ -467,7 +467,7 @@ pub fn run() -> GameResult {
     let rdist = Uniform::new(1., (W_SIZE as f32) - 1.);
     let mut rng = thread_rng();
 
-    for i in 1..50000 {
+    for i in 1..5000 {
         world.add_being(
             2.,
             Vec2::new(rng.sample(rdist), rng.sample(rdist)),
@@ -478,13 +478,13 @@ pub fn run() -> GameResult {
         );
     }
 
-    // for i in 1..5000 {
-    //     world.add_obstruct((rng.sample(rdist), rng.sample(rdist)));
-    // }
+    for i in 1..5000 {
+        world.add_obstruct(Vec2::new(rng.sample(rdist), rng.sample(rdist)));
+    }
 
-    // for i in 1..2000 {
-    //     world.add_food((rng.sample(rdist), rng.sample(rdist)))
-    // }
+    for i in 1..2000 {
+        world.add_food(Vec2::new(rng.sample(rdist), rng.sample(rdist)))
+    }
 
     // if cfg!(debug_assertions) && env::var("yes_i_really_want_debug_mode").is_err() {
     //     eprintln!(
