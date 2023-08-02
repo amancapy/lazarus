@@ -95,6 +95,8 @@ pub struct Being {
     id: usize,
 
     pos_update: Vec2,
+    energy_update: f32,
+    rotation_update: f32,
 }
 
 pub struct Obstruct {
@@ -182,6 +184,8 @@ impl World {
             id: self.being_id,
 
             pos_update: Vec2::new(0., 0.),
+            energy_update: 0.,
+            rotation_update: 0.,
         };
 
         let k = self.beings.insert(being);
@@ -328,7 +332,7 @@ impl World {
                                 
 
                                 if overlap && !f_ref.eaten {
-                                    b.unwrap().energy += f_ref.val;
+                                    b.unwrap().energy_update += f_ref.val;
                                     self.food_deaths.push((*f_id, f_ref.pos));
                                     f.unwrap().eaten = true;
 
@@ -345,6 +349,11 @@ impl World {
     pub fn update_cells(&mut self) {
         for (k, b) in &mut self.beings {
             let new_pos = b.pos + b.pos_update;
+
+            b.energy += b.energy_update;
+            b.rotation += b.rotation_update;
+            b.energy_update = 0.;
+            b.rotation_update = 0.;
 
             if !oob(new_pos, b.radius) {
                 b.pos = new_pos;
