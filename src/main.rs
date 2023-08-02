@@ -7,6 +7,7 @@ use rand::{distributions::Uniform, prelude::*};
 use slotmap::DefaultKey;
 use slotmap::SlotMap;
 use std::env;
+use std::f32::consts::PI;
 use std::ops::Index;
 use std::path;
 
@@ -61,23 +62,25 @@ pub fn oob(ij: Vec2, r: f32) -> bool {
         || bot_border_trespass(j, r)
 }
 
-pub fn beings_collide(b1: &Being, b2: &Being) -> bool {
-    let centre_dist = b1.pos.distance(b2.pos);
+pub fn beings_collide(b1: &Being, b2: &Being) -> (f32, f32, Vec2) {
+    let c1c2 = b2.pos - b1.pos;
+    let centre_dist = c1c2.length();
     let (r1, r2) = (b1.radius, b2.radius);
 
-    centre_dist <= r1 + r2
+    (r1 + r2 - centre_dist, centre_dist, c1c2)
 }
 
-pub fn obstruct_collide(b: &Being, o: &Obstruct) -> bool {
-    let centre_dist = b.pos.distance(o.pos);
+pub fn obstruct_collide(b: &Being, o: &Obstruct) -> (f32, f32, Vec2) {
+    let c1c2 = b.pos - o.pos;
+    let centre_dist = c1c2.length();
     let (r1, r2) = (b.radius, o.radius);
-    centre_dist <= r1 + r2
+    (r1 + r2 - centre_dist, centre_dist, c1c2)
 }
 
 pub fn food_collide(b: &Being, f: &Food) -> bool {
     let centre_dist = b.pos.distance(f.pos);
     let (r1, r2) = (b.radius, 1.);
-    centre_dist <= r1 + r2
+    r1 + r2 - centre_dist > 0.
 }
 
 #[derive(Debug)]
@@ -279,17 +282,17 @@ impl World {
                                 if !(id1 == id2) {
                                     let [b1, b2] = self.beings.get_disjoint_mut([*id1, *id2]).unwrap();
 
-                                    if beings_collide(b1, b2) {
+                                    let (overlap, centre_dist, c1c2) = beings_collide(b1, b2);
+                                    if overlap > 0. {
                                         self.being_collision_count += 1;
 
-                                        let ij1 = b1.pos;
-                                        let ij2 = b2.pos;
-                                        let c1c2 = ij2 - ij1;
-                                        let half_dist = c1c2 * -0.5;
-
-                                        let new_pos = ij1 + half_dist;
+                                        let d_p = overlap / centre_dist * c1c2;
+                                        let half_dist = 0.5 * d_p;
+                                        
+                                        
+                                        let new_pos = b1.pos - half_dist;
                                         if !oob(new_pos, b1.radius) {
-                                            b1.pos_update += half_dist;
+                                            b1.pos_update -= half_dist;
                                         }
                                     }
                                 }
@@ -300,16 +303,16 @@ impl World {
                                 let o = self.obstructs.get_mut(*ob_id);
 
                                 let b_ref = b.as_ref().unwrap();
+                                let o_ref = o.as_ref().unwrap();
 
-                                if obstruct_collide(b_ref, o.as_ref().unwrap()) {
+                                let (overlap, centre_dist, c1c2) = obstruct_collide(b_ref, o_ref);
+                                if overlap > 0. {
+
+                                    let d_p = overlap / centre_dist * c1c2;
+                                    let half_dist = d_p / 2.;
+
+                                    b.unwrap().pos_update -= half_dist;
                                     self.obstruct_collision_count += 1;
-                                    let ij1 = b_ref.pos;
-                                    let ij2 = o.unwrap().pos;
-
-                                    let c1c2 = ij2 - ij1;
-                                    let half_dist = c1c2 * -0.5;
-
-                                    b.unwrap().pos_update += half_dist;
                                 }
                             }
 
@@ -320,8 +323,11 @@ impl World {
 
                                 let b_ref = b.as_ref().unwrap();
                                 let f_ref = f.as_ref().unwrap();
+                                
+                                let overlap = food_collide(b_ref, f_ref);
+                                
 
-                                if food_collide(b_ref, f_ref) && !f_ref.eaten {
+                                if overlap && !f_ref.eaten {
                                     b.unwrap().energy += f_ref.val;
                                     self.food_deaths.push((*f_id, f_ref.pos));
                                     f.unwrap().eaten = true;
@@ -377,9 +383,9 @@ impl World {
         self.being_deaths.clear();
     }
 
-    pub fn age_foods(&mut self, decay_rate: f32) {
+    pub fn age_foods(&mut self, age_rate: f32) {
         for (k, f) in &mut self.foods {
-            f.age *= decay_rate;
+            f.age -= age_rate;
             if f.age < 0.05 {
                 self.food_deaths.push((k, f.pos));
 
@@ -396,9 +402,9 @@ impl World {
         self.food_deaths.clear();
     }
 
-    pub fn age_obstructs (&mut self, decay_rate: f32) {
+    pub fn age_obstructs (&mut self, age_rate: f32) {
         for (k, o) in &mut self.obstructs {
-            o.age *= decay_rate;
+            o.age -= age_rate;
 
             if o.age < 0.05 {
                 self.obstruct_deaths.push((k, o.pos));
@@ -423,8 +429,8 @@ impl World {
         }
 
         self.tire_beings(0.);
-        self.age_foods(1.);
-        self.age_obstructs(1.);
+        self.age_foods(0.);
+        self.age_obstructs(0.);
         
         self.age += 1;
     }
@@ -453,7 +459,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
         self.world.step(1);
         if self.world.age % HZ == 0 {
-            println!("{} {} {}", self.world.age, ctx.time.fps(), self.world.beings.len());
+            println!("timestep: {}, fps: {}", self.world.age, ctx.time.fps());
         }
 
         Ok(())
@@ -486,9 +492,9 @@ pub fn get_world () -> World {
         world.add_being(
             2.,
             Vec2::new(rng.sample(rdist), rng.sample(rdist)),
-            rng.gen_range(-10.0..10.),
+            rng.gen_range(-PI..PI),
 
-            0.05,
+            0.2,
             1.
         );
     }
