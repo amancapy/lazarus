@@ -83,7 +83,7 @@ pub fn food_collide(b: &Being, f: &Food) -> bool {
     r1 + r2 - centre_dist > 0.
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Being {
     radius: f32,
     pos: Vec2,
@@ -262,6 +262,7 @@ impl World {
             for j in 0..N_CELLS {
                 let ij = two_to_one((i, j));
                 for id1 in &self.being_cells[ij] {
+
                     for (di, dj) in [
                         (-1, -1),
                         (-1, 0),
@@ -280,10 +281,9 @@ impl World {
 
                             for id2 in &self.being_cells[nij] {
                                 if !(id1 == id2) {
-                                    let [b1, b2] = self.beings.get_disjoint_mut([*id1, *id2]).unwrap();
-
-                                    let (overlap, centre_dist, c1c2) = beings_collide(b1, b2);
+                                    let (overlap, centre_dist, c1c2) = beings_collide(&self.beings.get(*id1).unwrap(), self.beings.get(*id2).unwrap());
                                     if overlap > 0. {
+                                        let b1 = self.beings.get_mut(*id1).unwrap();
                                         self.being_collision_count += 1;
 
                                         let d_p = overlap / centre_dist * c1c2;
@@ -552,7 +552,7 @@ pub fn gauge(n: usize) {
     for i in 0..n {
         w.step(1);
         if i % HZ == 0 {
-            println!("{}", i);
+            println!("{}", i / HZ);
         }
     }
 }
