@@ -10,7 +10,6 @@ use std::env;
 use std::f32::consts::PI;
 use std::path;
 
-
 #[rustfmt::skip]
 mod consts {
     pub const W_SIZE: usize = 1000;
@@ -19,13 +18,9 @@ mod consts {
     pub const W_FLOAT: f32 = W_SIZE as f32;
     pub const HZ: usize = 60;
 
-    pub const B_SPEED:                                  f32 = 0.3;
-    pub const S_SPEED:                                  f32 = 1.;
-
-    pub const B_RADIUS:                                 f32 = 2.;
+    pub const B_RADIUS:                                 f32 = 3.;
     pub const O_RADIUS:                                 f32 = 2.;
     pub const F_RADIUS:                                 f32 = 2.;
-    pub const S_RADIUS:                                 f32 = 2.;
 
     pub const BASE_MOV_SPEED:                           f32 = 1.;
     pub const BASE_ANG_SPEED_DEGREES:                   f32 = 10.;
@@ -38,11 +33,6 @@ mod consts {
     pub const O_HEALTH_LEAK:                            f32 = 0.002;
     pub const F_VAL_LEAK:                               f32 = 0.002;
 
-    pub const B_TIRE_RATE:                              f32 = 0.;
-    pub const O_AGE_RATE:                               f32 = 0.;
-    pub const F_AGE_RATE:                               f32 = 0.;
-    pub const S_SOFTEN_RATE:                            f32 = 0.;
-
     pub const B_HEADON_DAMAGE:                          f32 = 0.25;
     pub const B_REAR_DAMAGE:                            f32 = 1.;
     pub const TAN_B_HITS_O_DAMAGE:                      f32 = 1.;
@@ -51,10 +41,10 @@ mod consts {
     pub const LOW_ENERGY_SPEED_DAMP_RATE:               f32 = 0.5;                          // beings slow down when their energy runs low
     pub const OFF_DIR_MOVEMENT_SPEED_DAMP_RATE:         f32 = 0.5;                          // beings slow down when not moving face-forward
 
-    pub const N_FOOD_SPAWN_PER_STEP:                  usize = 1; 
+    pub const N_FOOD_SPAWN_PER_STEP:                    usize = 1; 
 
-    pub const SPEECHLET_LEN:                          usize = 32;                           // length of the sound vector a being can emit
-    pub const B_OUTPUT_LEN:                           usize = SPEECHLET_LEN + 5;             // move_forward, rotate_left, rotate_right, spawn_obstruct, speak
+    pub const LANG_VEC_LEN:                           usize = 32;                           // length of the sound vector a being can emit
+    pub const B_OUTPUT_LEN:                           usize = LANG_VEC_LEN + 5;             // move_forward, rotate_left, rotate_right, spawn_obstruct, speak
 }
 
 use consts::*;
@@ -117,7 +107,7 @@ pub fn b_collides_b(b1: &Being, b2: &Being) -> (f32, f32, Vec2) {
 pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2) {
     let c1c2 = o.pos - b.pos;
     let centre_dist = c1c2.length();
-    let (r1, r2) = (b.radius, O_RADIUS);
+    let (r1, r2) = (b.radius, o.radius);
     (r1 + r2 - centre_dist, centre_dist, c1c2)
 }
 
@@ -129,14 +119,14 @@ pub fn b_collides_f(b: &Being, f: &Food) -> bool {
 
 #[derive(Debug, Clone)]
 pub struct Being {
+    radius: f32,
     pos: Vec2,
-    radius: f32, // to be deprecated
     rotation: f32,
     energy: f32,
 
-    speed: f32, // to be deprecated
+    speed: f32,
     cell: (usize, usize),
-    id: usize, // vestigial, may stick around
+    id: usize,
 
     pos_update: Vec2,
     energy_update: f32,
@@ -144,7 +134,7 @@ pub struct Being {
 }
 
 pub struct Obstruct {
-    // radius: f32, deprecated
+    radius: f32,
     pos: Vec2,
     age: f32,
     id: usize,
@@ -159,23 +149,14 @@ pub struct Food {
     id: usize,
 }
 
-pub struct Speechlet {
-    speechlet: [f32; SPEECHLET_LEN],
-    rotation: f32,
-    pos: f32,
-    heard: bool,
-}
-
 pub struct World {
     beings: SlotMap<DefaultKey, Being>,
     obstructs: SlotMap<DefaultKey, Obstruct>,
     foods: SlotMap<DefaultKey, Food>,
-    speechlets: SlotMap<DefaultKey, Speechlet>,
 
     being_cells: Vec<Vec<DefaultKey>>,
     obstruct_cells: Vec<Vec<DefaultKey>>,
     food_cells: Vec<Vec<DefaultKey>>,
-    speechlet_cells: Vec<Vec<DefaultKey>>,
 
     being_id: usize,
     ob_id: usize,
@@ -184,9 +165,12 @@ pub struct World {
     being_deaths: Vec<(DefaultKey, Vec2)>,
     obstruct_deaths: Vec<(DefaultKey, Vec2)>,
     food_deaths: Vec<(DefaultKey, Vec2)>,
-    speechlet_deaths: Vec<(DefaultKey, Vec2)>,
 
     age: usize,
+
+    being_collision_count: usize,
+    obstruct_collision_count: usize,
+    food_collision_count: usize,
 }
 
 impl World {
@@ -196,21 +180,22 @@ impl World {
             beings: SlotMap::new(),
             obstructs: SlotMap::new(),
             foods: SlotMap::new(),
-            speechlets: SlotMap::new(),
 
             being_cells: (0..(n_cells + 1).pow(2)).map(|_| Vec::new()).collect(),
             obstruct_cells: (0..(n_cells + 1).pow(2)).map(|_| Vec::new()).collect(),
             food_cells: (0..(n_cells + 1).pow(2)).map(|_| Vec::new()).collect(),
-            speechlet_cells: (0..(n_cells + 1).pow(2)).map(|_| Vec::new()).collect(),
 
             being_id: 0,
             ob_id: 0,
             food_id: 0,
 
+            being_collision_count: 0,
+            obstruct_collision_count: 0,
+            food_collision_count: 0,
+
             being_deaths: vec![],
             food_deaths: vec![],
             obstruct_deaths: vec![],
-            speechlet_deaths: vec![],
 
             age: 0,
         }
@@ -244,6 +229,7 @@ impl World {
         let (i, j) = pos_to_cell(pos);
 
         let obstruct = Obstruct {
+            radius: 2.,
             pos: pos,
             age: 5.,
             id: self.ob_id,
@@ -275,8 +261,6 @@ impl World {
         self.food_id += 1;
     }
 
-    pub fn add_speechlet(&mut self, speechlet: [f32; SPEECHLET_LEN]) {}
-
     pub fn move_beings(&mut self, substeps: usize) {
         let s = substeps as f32;
 
@@ -299,8 +283,6 @@ impl World {
             });
         }
     }
-
-    pub fn move_speechlets(&mut self) {}
 
     pub fn check_collisions(&mut self, timestep: usize) {
         let w = N_CELLS as isize;
@@ -348,6 +330,8 @@ impl World {
                                         if !oob(new_pos, b1.radius) {
                                             b1.pos_update -= half_dist;
                                         }
+
+                                        self.being_collision_count += 1;
                                     }
                                 }
                             }
@@ -366,6 +350,7 @@ impl World {
                                     let half_dist = d_p / 2.;
 
                                     b.unwrap().pos_update -= half_dist;
+                                    self.obstruct_collision_count += 1;
                                 }
                             }
 
@@ -384,6 +369,8 @@ impl World {
                                     b.unwrap().energy_update += f_ref.val;
                                     self.food_deaths.push((*f_id, f_ref.pos));
                                     f.unwrap().eaten = true;
+
+                                    self.food_collision_count += 1;
                                 }
                             }
                         }
@@ -424,9 +411,9 @@ impl World {
     }
 
     // beings tire and/or die
-    pub fn tire_beings(&mut self) {
+    pub fn tire_beings(&mut self, tire_rate: f32) {
         for (k, b) in &mut self.beings {
-            b.energy -= B_TIRE_RATE;
+            b.energy -= tire_rate;
 
             if b.energy <= 0. {
                 self.being_deaths.push((k, b.pos));
@@ -441,28 +428,10 @@ impl World {
         self.being_deaths.clear();
     }
 
-    // walls crack and/or crumble
-    pub fn age_obstructs(&mut self) {
-        for (k, o) in &mut self.obstructs {
-            o.age -= O_AGE_RATE;
-
-            if o.age < 0.05 {
-                self.obstruct_deaths.push((k, o.pos));
-            }
-        }
-
-        for o in &self.obstruct_deaths {
-            self.obstructs.remove(o.0);
-            self.obstruct_cells[two_to_one(pos_to_cell(o.1))].retain(|x| *x != o.0);
-        }
-
-        self.obstruct_deaths.clear();
-    }
-
     // food grows stale and/or disappears
-    pub fn age_foods(&mut self) {
+    pub fn age_foods(&mut self, age_rate: f32) {
         for (k, f) in &mut self.foods {
-            f.age -= F_AGE_RATE;
+            f.age -= age_rate;
             if f.age < 0.05 {
                 self.food_deaths.push((k, f.pos));
             }
@@ -477,7 +446,23 @@ impl World {
         self.food_deaths.clear();
     }
 
-    pub fn soften_speechlets(&mut self) {}
+    // walls crack and/or crumble
+    pub fn age_obstructs(&mut self, age_rate: f32) {
+        for (k, o) in &mut self.obstructs {
+            o.age -= age_rate;
+
+            if o.age < 0.05 {
+                self.obstruct_deaths.push((k, o.pos));
+            }
+        }
+
+        for o in &self.obstruct_deaths {
+            self.obstructs.remove(o.0);
+            self.obstruct_cells[two_to_one(pos_to_cell(o.1))].retain(|x| *x != o.0);
+        }
+
+        self.obstruct_deaths.clear();
+    }
 
     // self-explanatory
     pub fn step(&mut self, substeps: usize) {
@@ -487,11 +472,9 @@ impl World {
             self.update_cells();
         }
 
-        self.move_speechlets();
-        self.tire_beings();
-        self.age_foods();
-        self.age_obstructs();
-        self.soften_speechlets();
+        self.tire_beings(0.);
+        self.age_foods(0.);
+        self.age_obstructs(0.);
 
         self.age += 1;
     }
@@ -517,7 +500,7 @@ impl MainState {
 
 impl event::EventHandler<ggez::GameError> for MainState {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
-        self.world.step(1);
+        self.world.step(128);
         if self.world.age % HZ == 0 {
             println!("timestep: {}, fps: {}", self.world.age, ctx.time.fps());
         }
@@ -549,13 +532,13 @@ pub fn get_world() -> World {
     let rdist = Uniform::new(1., (W_SIZE as f32) - 1.);
     let mut rng = thread_rng();
 
-    for i in 1..50000 {
+    for i in 1..5000 {
         world.add_being(
             B_RADIUS,
             Vec2::new(rng.sample(rdist), rng.sample(rdist)),
             rng.gen_range(-PI..PI),
-            B_SPEED,
-            B_START_ENERGY,
+            2.,
+            1.,
         );
     }
 
@@ -611,8 +594,8 @@ pub fn gauge() {
     let mut w = get_world();
     loop {
         w.step(1);
-        if w.age % HZ == 0 {
-            println!("{}", w.age / HZ);
+        if i % HZ == 0 {
+            println!("{}", i / HZ);
         }
     }
 }
