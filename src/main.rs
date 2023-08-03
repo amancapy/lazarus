@@ -10,7 +10,6 @@ use std::env;
 use std::f32::consts::PI;
 use std::path;
 
-
 #[rustfmt::skip]
 mod consts {
     pub const W_SIZE: usize = 1000;
@@ -49,7 +48,6 @@ mod consts {
 }
 
 use consts::*;
-
 
 // maps 2D space-partition index to 1D Vec index
 fn two_to_one((i, j): (usize, usize)) -> usize {
@@ -200,7 +198,6 @@ impl World {
             obstruct_deaths: vec![],
 
             age: 0,
-
         }
     }
 
@@ -255,7 +252,6 @@ impl World {
             eaten: false,
 
             id: self.food_id,
-
         };
 
         let k = self.foods.insert(food);
@@ -279,9 +275,8 @@ impl World {
 
                 if !oob(newij, being.radius) {
                     being.pos_update = move_vec;
-                }
-
-                else { // TEMP TEMP TEMP TEMP NOTICE TEMP TO BE FIXED
+                } else {
+                    // TEMP TEMP TEMP TEMP NOTICE TEMP TO BE FIXED
                     let newij = Vec2::new(rng.sample(rdist), rng.sample(rdist));
                     being.pos = newij;
                 }
@@ -293,10 +288,12 @@ impl World {
         let w = N_CELLS as isize;
 
         for i in 0..N_CELLS {
-            for j in 0..N_CELLS { // for each partition
+            for j in 0..N_CELLS {
+                // for each partition
                 let ij = two_to_one((i, j));
 
-                for id1 in &self.being_cells[ij] { // for each being
+                for id1 in &self.being_cells[ij] {
+                    // for each being
                     for (di, dj) in [
                         (-1, -1),
                         (-1, 0),
@@ -310,21 +307,25 @@ impl World {
                     ] {
                         let (ni, nj) = ((i as isize) + di, (j as isize) + dj);
 
-                        if !(ni < 0 || ni >= w || nj < 0 || nj >= w) { // if valid partition
+                        if !(ni < 0 || ni >= w || nj < 0 || nj >= w) {
+                            // if valid partition
                             let (ni, nj) = (ni as usize, nj as usize);
                             let nij = two_to_one((ni, nj));
 
-                            for id2 in &self.being_cells[nij] { // for another being in the same or one of the 8 neighbouring cells
+                            for id2 in &self.being_cells[nij] {
+                                // for another being in the same or one of the 8 neighbouring cells
                                 if !(id1 == id2) {
-                                    let (overlap, centre_dist, c1c2) = b_collides_b(&self.beings.get(*id1).unwrap(), self.beings.get(*id2).unwrap());
-                                    
+                                    let (overlap, centre_dist, c1c2) = b_collides_b(
+                                        &self.beings.get(*id1).unwrap(),
+                                        self.beings.get(*id2).unwrap(),
+                                    );
+
                                     if overlap > 0. {
                                         let b1 = self.beings.get_mut(*id1).unwrap();
 
                                         let d_p = overlap / centre_dist * c1c2;
                                         let half_dist = 0.5 * d_p;
-                                        
-                                        
+
                                         let new_pos = b1.pos - half_dist;
                                         if !oob(new_pos, b1.radius) {
                                             b1.pos_update -= half_dist;
@@ -335,7 +336,8 @@ impl World {
                                 }
                             }
 
-                            for ob_id in &self.obstruct_cells[nij] { // for an obstruct similarly
+                            for ob_id in &self.obstruct_cells[nij] {
+                                // for an obstruct similarly
                                 let b = self.beings.get_mut(*id1);
                                 let o = self.obstructs.get_mut(*ob_id);
 
@@ -344,7 +346,6 @@ impl World {
 
                                 let (overlap, centre_dist, c1c2) = b_collides_o(b_ref, o_ref);
                                 if overlap > 0. {
-
                                     let d_p = overlap / centre_dist * c1c2;
                                     let half_dist = d_p / 2.;
 
@@ -353,16 +354,16 @@ impl World {
                                 }
                             }
 
-                            for f_id in &self.food_cells[nij] { // for a food similarly
+                            for f_id in &self.food_cells[nij] {
+                                // for a food similarly
 
                                 let b = self.beings.get_mut(*id1);
                                 let f = self.foods.get_mut(*f_id);
 
                                 let b_ref = b.as_ref().unwrap();
                                 let f_ref = f.as_ref().unwrap();
-                                
+
                                 let overlap = b_collides_f(b_ref, f_ref);
-                                
 
                                 if overlap && !f_ref.eaten {
                                     b.unwrap().energy_update += f_ref.val;
@@ -379,7 +380,7 @@ impl World {
         }
     }
 
-    // to reflect changes based on rotation, translation, collision resolution, fatigue, aging
+    // reflect changes in rotation, translation, collision resolution, fatigue, aging, death
     pub fn update_cells(&mut self) {
         for (k, b) in &mut self.beings {
             let new_pos = b.pos + b.pos_update;
@@ -409,8 +410,8 @@ impl World {
         }
     }
 
-    // being energy runs down
-    pub fn tire_beings (&mut self, tire_rate: f32) {
+    // beings tire and/or die
+    pub fn tire_beings(&mut self, tire_rate: f32) {
         for (k, b) in &mut self.beings {
             b.energy -= tire_rate;
 
@@ -433,7 +434,6 @@ impl World {
             f.age -= age_rate;
             if f.age < 0.05 {
                 self.food_deaths.push((k, f.pos));
-
             }
         }
 
@@ -441,14 +441,13 @@ impl World {
             self.foods.remove(f.0);
 
             self.food_cells[two_to_one(pos_to_cell(f.1))].retain(|x| *x != f.0);
-
         }
 
         self.food_deaths.clear();
     }
 
     // walls crack and/or crumble
-    pub fn age_obstructs (&mut self, age_rate: f32) {
+    pub fn age_obstructs(&mut self, age_rate: f32) {
         for (k, o) in &mut self.obstructs {
             o.age -= age_rate;
 
@@ -471,18 +470,15 @@ impl World {
             self.move_beings(substeps);
             self.check_collisions(self.age);
             self.update_cells();
-
         }
 
         self.tire_beings(0.);
         self.age_foods(0.);
         self.age_obstructs(0.);
-        
+
         self.age += 1;
     }
 }
-
-
 
 // a BUNCH of rendering boilerplate, will switch to Bevy rendering soon. wip.
 struct MainState {
@@ -515,13 +511,14 @@ impl event::EventHandler<ggez::GameError> for MainState {
     fn draw(&mut self, _ctx: &mut Context) -> Result<(), ggez::GameError> {
         let mut canvas = graphics::Canvas::from_frame(_ctx, Color::BLACK);
 
-        self.being_instances.set(self.world.beings.iter().map(|(k, b)| {
-            let xy = b.pos;
-            graphics::DrawParam::new()
-                .dest(xy.clone())
-                .scale(Vec2::new(1., 1.) / 400. * B_RADIUS)
-                .rotation(b.rotation)
-        }));
+        self.being_instances
+            .set(self.world.beings.iter().map(|(k, b)| {
+                let xy = b.pos;
+                graphics::DrawParam::new()
+                    .dest(xy.clone())
+                    .scale(Vec2::new(1., 1.) / 400. * B_RADIUS)
+                    .rotation(b.rotation)
+            }));
 
         let param = graphics::DrawParam::new();
         canvas.draw(&self.being_instances, param);
@@ -529,9 +526,8 @@ impl event::EventHandler<ggez::GameError> for MainState {
     }
 }
 
-
 // a world populated as intended, this fn mainly to relieve World::new() of some clutter
-pub fn get_world () -> World {
+pub fn get_world() -> World {
     let mut world = World::new(N_CELLS);
     let rdist = Uniform::new(1., (W_SIZE as f32) - 1.);
     let mut rng = thread_rng();
@@ -541,9 +537,8 @@ pub fn get_world () -> World {
             B_RADIUS,
             Vec2::new(rng.sample(rdist), rng.sample(rdist)),
             rng.gen_range(-PI..PI),
-
             2.,
-            1.
+            1.,
         );
     }
 
@@ -558,14 +553,11 @@ pub fn get_world () -> World {
     world
 }
 
-
 pub fn run() -> GameResult {
     assert!(W_SIZE % N_CELLS == 0);
     assert!(B_RADIUS < CELL_SIZE as f32);
 
-
     let world = get_world();
-
 
     // if cfg!(debug_assertions) && env::var("yes_i_really_want_debug_mode").is_err() {
     //     eprintln!(
@@ -587,7 +579,7 @@ pub fn run() -> GameResult {
         .window_mode(WindowMode {
             width: W_FLOAT,
             height: W_FLOAT,
-            
+
             ..Default::default()
         });
 
