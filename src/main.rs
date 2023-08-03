@@ -127,7 +127,7 @@ pub fn b_collides_f(b: &Being, f: &Food) -> bool {
     r1 + r2 - centre_dist > 0.
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Being {
     pos: Vec2,
     radius: f32, // to be deprecated
@@ -137,6 +137,7 @@ pub struct Being {
     speed: f32, // to be deprecated
     cell: (usize, usize),
     id: usize, // vestigial, may stick around
+    inputs: Vec<Speechlet>,
 
     pos_update: Vec2,
     energy_update: f32,
@@ -159,6 +160,7 @@ pub struct Food {
     id: usize,
 }
 
+#[derive(Debug)]
 pub struct Speechlet {
     speechlet: [f32; SPEECHLET_LEN],
     rotation: f32,
@@ -228,6 +230,7 @@ impl World {
             speed: speed,
             cell: (i, j),
             id: self.being_id,
+            inputs: vec![],
 
             pos_update: Vec2::new(0., 0.),
             energy_update: 0.,
