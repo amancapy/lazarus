@@ -127,6 +127,15 @@ pub fn b_collides_f(b: &Being, f: &Food) -> bool {
     r1 + r2 - centre_dist > 0.
 }
 
+pub fn b_collides_s(b: &Being, s: &Speechlet) -> bool {
+    let c1c2 = s.pos - b.pos;
+    let centre_dist = c1c2.length();
+    let (r1, r2) = (b.radius, S_RADIUS);
+
+    r1 + r2 - centre_dist > 0.
+}
+
+
 #[derive(Debug)]
 pub struct Being {
     pos: Vec2,
