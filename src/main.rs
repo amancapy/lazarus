@@ -10,11 +10,10 @@ use std::env;
 use std::f32::consts::PI;
 use std::path;
 
-
 #[rustfmt::skip]
 mod consts {
     pub const W_SIZE: usize = 1000;
-    pub const N_CELLS: usize = 250;
+    pub const N_CELLS: usize = 200;
     pub const CELL_SIZE: usize = W_SIZE / N_CELLS;
     pub const W_FLOAT: f32 = W_SIZE as f32;
     pub const HZ: usize = 60;
@@ -22,10 +21,10 @@ mod consts {
     pub const B_SPEED:                                  f32 = 0.3;
     pub const S_SPEED:                                  f32 = 1.;
 
-    pub const B_RADIUS:                                 f32 = 2.;
-    pub const O_RADIUS:                                 f32 = 2.;
-    pub const F_RADIUS:                                 f32 = 2.;
-    pub const S_RADIUS:                                 f32 = 2.;
+    pub const B_RADIUS:                                 f32 = 4.5;
+    pub const O_RADIUS:                                 f32 = 4.;
+    pub const F_RADIUS:                                 f32 = 2.5;
+    pub const S_RADIUS:                                 f32 = 2.5;
 
     pub const BASE_MOV_SPEED:                           f32 = 1.;
     pub const BASE_ANG_SPEED_DEGREES:                   f32 = 10.;
@@ -135,7 +134,6 @@ pub fn b_collides_s(b: &Being, s: &Speechlet) -> bool {
     r1 + r2 - centre_dist > 0.
 }
 
-
 #[derive(Debug)]
 pub struct Being {
     pos: Vec2,
@@ -173,7 +171,7 @@ pub struct Food {
 pub struct Speechlet {
     speechlet: [f32; SPEECHLET_LEN],
     rotation: f32,
-    pos: f32,
+    pos: Vec2,
     heard: bool,
 }
 
@@ -512,16 +510,30 @@ impl World {
 // a BUNCH of rendering boilerplate, will switch to Bevy rendering soon. wip.
 struct MainState {
     being_instances: graphics::InstanceArray,
+    obstruct_instances: graphics::InstanceArray,
+    food_instances: graphics::InstanceArray,
+    speechlet_instances: graphics::InstanceArray,
     world: World,
 }
 
 impl MainState {
     fn new(ctx: &mut Context, w: World) -> GameResult<MainState> {
-        let image = graphics::Image::from_path(ctx, "/circle.png")?;
-        let mut instances = graphics::InstanceArray::new(ctx, image);
+        let being = graphics::Image::from_path(ctx, "/red_circle.png")?;
+        let obstruct = graphics::Image::from_path(ctx, "/white_circle.png")?;
+        let food = graphics::Image::from_path(ctx, "/green_circle.png")?;
+        let speechlet = graphics::Image::from_path(ctx, "/blue_circle.png")?;
+
+        let being_instances = graphics::InstanceArray::new(ctx, being);
+        let obstruct_instances = graphics::InstanceArray::new(ctx, obstruct);
+        let food_instances = graphics::InstanceArray::new(ctx, food);
+        let speechlet_instances = graphics::InstanceArray::new(ctx, speechlet);
 
         Ok(MainState {
-            being_instances: instances,
+            being_instances: being_instances,
+            obstruct_instances: obstruct_instances,
+            food_instances: food_instances,
+            speechlet_instances: speechlet_instances,
+
             world: w,
         })
     }
@@ -549,8 +561,37 @@ impl event::EventHandler<ggez::GameError> for MainState {
                     .rotation(b.rotation)
             }));
 
+        self.obstruct_instances
+            .set(self.world.obstructs.iter().map(|(k, o)| {
+                let xy = o.pos;
+                graphics::DrawParam::new()
+                    .dest(xy.clone())
+                    .scale(Vec2::new(1., 1.) / 800. * O_RADIUS)
+            }));
+
+        self.food_instances
+            .set(self.world.foods.iter().map(|(k, f)| {
+                let xy = f.pos;
+                graphics::DrawParam::new()
+                    .dest(xy.clone())
+                    .scale(Vec2::new(1., 1.) / 2048. * F_RADIUS)
+            }));
+
+        self.speechlet_instances
+            .set(self.world.speechlets.iter().map(|(k, s)| {
+                let xy = s.pos;
+                graphics::DrawParam::new()
+                    .dest(xy.clone())
+                    .scale(Vec2::new(1., 1.) / 512. * S_RADIUS)
+                    .rotation(s.rotation)
+            }));
+
         let param = graphics::DrawParam::new();
         canvas.draw(&self.being_instances, param);
+        canvas.draw(&self.obstruct_instances, param);
+        canvas.draw(&self.food_instances, param);
+        canvas.draw(&self.speechlet_instances, param);
+        
         canvas.finish(_ctx)
     }
 }
@@ -561,7 +602,7 @@ pub fn get_world() -> World {
     let rdist = Uniform::new(1., (W_SIZE as f32) - 1.);
     let mut rng = thread_rng();
 
-    for i in 1..50000 {
+    for i in 0..500 {
         world.add_being(
             B_RADIUS,
             Vec2::new(rng.sample(rdist), rng.sample(rdist)),
@@ -571,13 +612,13 @@ pub fn get_world() -> World {
         );
     }
 
-    // for i in 1..5000 {
-    //     world.add_obstruct(Vec2::new(rng.sample(rdist), rng.sample(rdist)));
-    // }
+    for i in 0..100 {
+        world.add_obstruct(Vec2::new(rng.sample(rdist), rng.sample(rdist)));
+    }
 
-    // for i in 1..2000 {
-    //     world.add_food(Vec2::new(rng.sample(rdist), rng.sample(rdist)))
-    // }
+    for i in 0..2000 {
+        world.add_food(Vec2::new(rng.sample(rdist), rng.sample(rdist)))
+    }
 
     world
 }
