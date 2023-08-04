@@ -31,7 +31,8 @@ mod consts {
 
     pub const B_START_ENERGY:                           f32 = 10.;
     pub const O_START_HEALTH:                           f32 = 5.;
-    pub const F_START_VAL:                              f32 = 2.;
+    pub const F_START_AGE:                              f32 = 2.;
+    pub const S_START_AGE:                              f32 = 3.;
 
     pub const B_ENERGY_LEAK:                            f32 = 0.005;
     pub const O_HEALTH_LEAK:                            f32 = 0.002;
@@ -144,7 +145,7 @@ pub struct Being {
     speed: f32, // to be deprecated
     cell: (usize, usize),
     id: usize, // vestigial, may stick around
-    inputs: Vec<Speechlet>,
+    inputs: Vec<[f32; SPEECHLET_LEN]>,
 
     pos_update: Vec2,
     energy_update: f32,
@@ -172,7 +173,12 @@ pub struct Speechlet {
     speechlet: [f32; SPEECHLET_LEN],
     rotation: f32,
     pos: Vec2,
+    age: f32,
     heard: bool,
+    
+
+    pos_update: Vec2,
+    age_update: f32,
 }
 
 pub struct World {
@@ -285,7 +291,25 @@ impl World {
         self.food_id += 1;
     }
 
-    pub fn add_speechlet(&mut self, speechlet: [f32; SPEECHLET_LEN]) {}
+    pub fn add_speechlet(&mut self, speechlet: [f32; SPEECHLET_LEN], pos: Vec2, rotation: f32) {
+        let (i, j) = pos_to_cell(pos);
+
+        let speechlet = Speechlet {
+            speechlet: speechlet,
+            rotation: rotation,
+            pos: pos,
+            age: S_START_AGE,
+
+            pos_update: Vec2::new(0., 0.),
+            age_update: 0.,
+
+            heard: false
+        };
+
+        let k = self.speechlets.insert(speechlet);
+        let ij = two_to_one((i, j));
+        self.speechlet_cells[ij].push(k);
+    }
 
     pub fn move_beings(&mut self, substeps: usize) {
         let s = substeps as f32;
@@ -310,7 +334,25 @@ impl World {
         }
     }
 
-    pub fn move_speechlets(&mut self) {}
+    pub fn move_speechlets(&mut self) {
+        self.speechlets.iter_mut().for_each(|(k, s)| {
+            let move_vec = dir_from_theta(s.rotation) * S_SPEED;
+            let newij = s.pos + move_vec;
+
+            let rdist = Uniform::new(1., (W_SIZE as f32) - 1.);
+            let mut rng = thread_rng();
+
+            if !oob(newij, S_RADIUS) {
+                s.pos_update = move_vec;
+            }
+
+            else {
+                    // TEMP TEMP TEMP TEMP NOTICE TEMP TO BE FIXED
+                    let newij = Vec2::new(rng.sample(rdist), rng.sample(rdist));
+                    s.pos = newij;
+            }
+        })
+    }
 
     pub fn check_collisions(&mut self, timestep: usize) {
         let w = N_CELLS as isize;
@@ -396,6 +438,21 @@ impl World {
                                     f.unwrap().eaten = true;
                                 }
                             }
+
+                            for s_id in &self.speechlet_cells[nij] {
+                                let b = self.beings.get_mut(*id1);
+                                let s = self.speechlets.get_mut(*s_id);
+
+                                let b_ref = b.as_ref().unwrap();
+                                let s_ref = s.as_ref().unwrap();
+
+                                let overlap = b_collides_s(b_ref, s_ref);
+                                if overlap && !s_ref.heard {
+                                    b.unwrap().inputs.push(s_ref.speechlet);
+                                    self.speechlet_deaths.push((*s_id, s_ref.pos));
+                                    s.unwrap().heard = true;
+                                }
+                            }
                         }
                     }
                 }
@@ -443,9 +500,9 @@ impl World {
             }
         }
 
-        for b in &self.being_deaths {
-            self.beings.remove(b.0);
-            self.being_cells[two_to_one(pos_to_cell(b.1))].retain(|x| *x != b.0);
+        for (k, pos) in &self.being_deaths {
+            self.beings.remove(*k);
+            self.being_cells[two_to_one(pos_to_cell(*pos))].retain(|x| x != k);
         }
 
         self.being_deaths.clear();
@@ -461,9 +518,9 @@ impl World {
             }
         }
 
-        for o in &self.obstruct_deaths {
-            self.obstructs.remove(o.0);
-            self.obstruct_cells[two_to_one(pos_to_cell(o.1))].retain(|x| *x != o.0);
+        for (k, pos) in &self.obstruct_deaths {
+            self.obstructs.remove(*k);
+            self.obstruct_cells[two_to_one(pos_to_cell(*pos))].retain(|x| x != k);
         }
 
         self.obstruct_deaths.clear();
@@ -478,16 +535,31 @@ impl World {
             }
         }
 
-        for f in &self.food_deaths {
-            self.foods.remove(f.0);
+        for (k, pos) in &self.food_deaths {
+            self.foods.remove(*k);
 
-            self.food_cells[two_to_one(pos_to_cell(f.1))].retain(|x| *x != f.0);
+            self.food_cells[two_to_one(pos_to_cell(*pos))].retain(|x| x != k);
         }
 
         self.food_deaths.clear();
     }
 
-    pub fn soften_speechlets(&mut self) {}
+    pub fn soften_speechlets(&mut self) {
+        for (k, s) in &mut self.speechlets {
+            s.age -= S_SOFTEN_RATE;
+
+            if s.age < 0.05 {
+                self.speechlet_deaths.push((k, s.pos));
+            }
+        }
+
+        for (k, pos) in &self.speechlet_deaths {
+            self.speechlets.remove(*k);
+            self.speechlet_cells[two_to_one(pos_to_cell(*pos))].retain(|x| x != k);
+        }
+
+        self.speechlet_deaths.clear();
+    }
 
     // self-explanatory
     pub fn step(&mut self, substeps: usize) {
