@@ -12,6 +12,8 @@ use std::path;
 
 #[rustfmt::skip]
 mod consts {
+    use std::f32::INFINITY;
+
     pub const W_SIZE: usize = 1000;
     pub const N_CELLS: usize = 200;
     pub const CELL_SIZE: usize = W_SIZE / N_CELLS;
@@ -205,18 +207,17 @@ pub struct World {
 }
 
 impl World {
-    pub fn new(n_cells: usize) -> Self {
-        assert!(W_SIZE % n_cells == 0);
+    pub fn new() -> Self {
         World {
             beings: SlotMap::new(),
             obstructs: SlotMap::new(),
             foods: SlotMap::new(),
             speechlets: SlotMap::new(),
 
-            being_cells: (0..(n_cells + 1).pow(2)).map(|_| Vec::new()).collect(),
-            obstruct_cells: (0..(n_cells + 1).pow(2)).map(|_| Vec::new()).collect(),
-            food_cells: (0..(n_cells + 1).pow(2)).map(|_| Vec::new()).collect(),
-            speechlet_cells: (0..(n_cells + 1).pow(2)).map(|_| Vec::new()).collect(),
+            being_cells: (0..(N_CELLS + 1).pow(2)).map(|_| Vec::new()).collect(),
+            obstruct_cells: (0..(N_CELLS + 1).pow(2)).map(|_| Vec::new()).collect(),
+            food_cells: (0..(N_CELLS + 1).pow(2)).map(|_| Vec::new()).collect(),
+            speechlet_cells: (0..(N_CELLS + 1).pow(2)).map(|_| Vec::new()).collect(),
 
             being_id: 0,
             ob_id: 0,
@@ -393,7 +394,7 @@ impl World {
                                         let b1 = self.beings.get_mut(*id1).unwrap();
 
                                         let d_p = overlap / centre_dist * c1c2;
-                                        let half_dist = 0.5 * d_p;
+                                        let half_dist = d_p / 1.9;
 
                                         let new_pos = b1.pos - half_dist;
                                         if !oob(new_pos, b1.radius) {
@@ -402,8 +403,10 @@ impl World {
 
                                         let b1_dir = dir_from_theta(b1.rotation);
                                         let axis_alignment = b1_dir.dot(c1c2.normalize());
+
                                         if axis_alignment > 0. {
-                                            b1.energy_update -= B_HEADON_DAMAGE * axis_alignment / s;
+                                            b1.energy_update -=
+                                                B_HEADON_DAMAGE * axis_alignment / s;
                                         } else {
                                             b1.energy_update -=
                                                 B_REAR_DAMAGE * axis_alignment.abs() / s;
@@ -414,18 +417,23 @@ impl World {
 
                             for ob_id in &self.obstruct_cells[nij] {
                                 // for an obstruct similarly
-                                let b = self.beings.get_mut(*id1);
-                                let o = self.obstructs.get_mut(*ob_id);
+                                let b = self.beings.get_mut(*id1).unwrap();
+                                let o = self.obstructs.get_mut(*ob_id).unwrap();
 
-                                let b_ref = b.as_ref().unwrap();
-                                let o_ref = o.as_ref().unwrap();
-
-                                let (overlap, centre_dist, c1c2) = b_collides_o(b_ref, o_ref);
+                                let (overlap, centre_dist, c1c2) = b_collides_o(b, o);
                                 if overlap > 0. {
                                     let d_p = overlap / centre_dist * c1c2;
-                                    let half_dist = d_p / 2.;
+                                    let half_dist = d_p / 1.9;
 
-                                    b.unwrap().pos_update -= half_dist;
+                                    b.pos_update -= half_dist;
+
+                                    let b_dir = dir_from_theta(b.rotation);
+                                    let axis_alignment = b_dir.dot(c1c2.normalize());
+
+                                    if axis_alignment > 0. {
+                                        b.energy_update -=
+                                            HEADON_B_HITS_O_DAMAGE * axis_alignment / s;
+                                    }
                                 }
                             }
 
@@ -569,6 +577,14 @@ impl World {
         self.speechlet_deaths.clear();
     }
 
+    pub fn repop_foods (&mut self) {
+        let mut rng = thread_rng();
+        for _ in 0..N_FOOD_SPAWN_PER_STEP {
+            let ij = Vec2::new(rng.gen_range(1.0..W_FLOAT), rng.gen_range(1.0..W_FLOAT));
+            self.add_food(ij);
+        }
+    }
+
     // self-explanatory
     pub fn step(&mut self, substeps: usize) {
         for _ in 0..substeps {
@@ -582,6 +598,7 @@ impl World {
         self.age_foods();
         self.age_obstructs();
         self.soften_speechlets();
+        self.repop_foods();
 
         self.age += 1;
     }
@@ -678,7 +695,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
 
 // a world populated as intended, this fn mainly to relieve World::new() of some clutter
 pub fn get_world() -> World {
-    let mut world = World::new(N_CELLS);
+    let mut world = World::new();
     let rdist = Uniform::new(1., (W_SIZE as f32) - 1.);
     let mut rng = thread_rng();
 
@@ -704,8 +721,6 @@ pub fn get_world() -> World {
 }
 
 pub fn run() -> GameResult {
-    assert!(W_SIZE % N_CELLS == 0);
-    assert!(B_RADIUS < CELL_SIZE as f32);
 
     let world = get_world();
 
@@ -745,12 +760,16 @@ pub fn gauge() {
     loop {
         w.step(1);
         if w.age % HZ == 0 {
-            println!("{}", w.age / HZ);
+            println!("{}", w.age);
+            dbg!(w.beings.len());
         }
     }
 }
 
 pub fn main() {
+    assert!(W_SIZE % N_CELLS == 0);
+    assert!(B_RADIUS < CELL_SIZE as f32);
+    
     // gauge();
     run();
 }
