@@ -581,7 +581,7 @@ impl World {
         self.speechlet_deaths.clear();
     }
 
-    pub fn repop_foods (&mut self) {
+    pub fn repop_foods(&mut self) {
         let mut rng = thread_rng();
         for _ in 0..N_FOOD_SPAWN_PER_STEP {
             let ij = Vec2::new(rng.gen_range(1.0..W_FLOAT), rng.gen_range(1.0..W_FLOAT));
@@ -616,7 +616,7 @@ struct MainState {
     speechlet_instances: graphics::InstanceArray,
     world: World,
 
-    frame_buffer: Vec<Image>
+    frame_buffer: Vec<Image>,
 }
 
 impl MainState {
@@ -638,7 +638,7 @@ impl MainState {
             speechlet_instances: speechlet_instances,
 
             world: w,
-            frame_buffer: vec![]
+            frame_buffer: vec![],
         })
     }
 }
@@ -647,7 +647,12 @@ impl event::EventHandler<ggez::GameError> for MainState {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
         self.world.step(4);
         if self.world.age % HZ == 0 {
-            println!("timestep: {}, fps: {}, frames: {}", self.world.age, ctx.time.fps(), self.frame_buffer.len());
+            println!(
+                "timestep: {}, fps: {}, frames: {}",
+                self.world.age,
+                ctx.time.fps(),
+                self.frame_buffer.len()
+            );
         }
 
         let frame = ctx.gfx.frame().clone();
@@ -697,8 +702,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
         canvas.draw(&self.obstruct_instances, param);
         canvas.draw(&self.food_instances, param);
         canvas.draw(&self.speechlet_instances, param);
-        
-        
+
         canvas.finish(_ctx)
     }
 }
@@ -731,7 +735,6 @@ pub fn get_world() -> World {
 }
 
 pub fn run() -> GameResult {
-
     let world = get_world();
 
     // if cfg!(debug_assertions) && env::var("yes_i_really_want_debug_mode").is_err() {
@@ -754,9 +757,15 @@ pub fn run() -> GameResult {
         .window_mode(WindowMode {
             width: W_FLOAT,
             height: W_FLOAT,
-            
+
             ..Default::default()
-        }).window_setup(WindowSetup{title: String::from("langlands"), vsync: false, samples: NumSamples::One, ..Default::default()});
+        })
+        .window_setup(WindowSetup {
+            title: String::from("langlands"),
+            vsync: false,
+            samples: NumSamples::One,
+            ..Default::default()
+        });
 
     let (mut ctx, event_loop) = cb.build()?;
 
@@ -779,7 +788,7 @@ pub fn gauge() {
 pub fn main() {
     assert!(W_SIZE % N_CELLS == 0);
     assert!(B_RADIUS < CELL_SIZE as f32);
-    
+
     gauge();
     // run();
 }
