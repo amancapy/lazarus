@@ -1,0 +1,12 @@
+/home/aman/rustprojects/neuralang/target/debug/deps/libthiserror_impl-1942103de20bda8d.so: /home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/lib.rs /home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/ast.rs /home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/attr.rs /home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/expand.rs /home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/fmt.rs /home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/generics.rs /home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/prop.rs /home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/valid.rs
+
+/home/aman/rustprojects/neuralang/target/debug/deps/thiserror_impl-1942103de20bda8d.d: /home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/lib.rs /home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/ast.rs /home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/attr.rs /home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/expand.rs /home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/fmt.rs /home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/generics.rs /home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/prop.rs /home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/valid.rs
+
+/home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/lib.rs:
+/home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/ast.rs:
+/home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/attr.rs:
+/home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/expand.rs:
+/home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/fmt.rs:
+/home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/generics.rs:
+/home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/prop.rs:
+/home/aman/.cargo/registry/src/index.crates.io-6f17d22bba15001f/thiserror-impl-1.0.44/src/valid.rs:
