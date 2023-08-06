@@ -1,6 +1,9 @@
+use ggez::conf::NumSamples;
 use ggez::conf::WindowMode;
+use ggez::conf::WindowSetup;
 use ggez::event;
 use ggez::glam::*;
+use ggez::graphics::Image;
 use ggez::graphics::{self, Color};
 use ggez::{Context, GameResult};
 use rand::{distributions::Uniform, prelude::*};
@@ -20,7 +23,7 @@ mod consts {
     pub const W_FLOAT: f32 = W_SIZE as f32;
     pub const HZ: usize = 60;
 
-    pub const B_SPEED:                                  f32 = 0.3;
+    pub const B_SPEED:                                  f32 = 1.;
     pub const S_SPEED:                                  f32 = 1.;
 
     pub const B_RADIUS:                                 f32 = 4.5;
@@ -577,7 +580,7 @@ impl World {
         self.speechlet_deaths.clear();
     }
 
-    pub fn repop_foods (&mut self) {
+    pub fn repop_foods(&mut self) {
         let mut rng = thread_rng();
         for _ in 0..N_FOOD_SPAWN_PER_STEP {
             let ij = Vec2::new(rng.gen_range(1.0..W_FLOAT), rng.gen_range(1.0..W_FLOAT));
@@ -611,6 +614,8 @@ struct MainState {
     food_instances: graphics::InstanceArray,
     speechlet_instances: graphics::InstanceArray,
     world: World,
+
+    frame_buffer: Vec<Image>,
 }
 
 impl MainState {
@@ -632,16 +637,25 @@ impl MainState {
             speechlet_instances: speechlet_instances,
 
             world: w,
+            frame_buffer: vec![],
         })
     }
 }
 
 impl event::EventHandler<ggez::GameError> for MainState {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
-        self.world.step(1);
+        self.world.step(4);
         if self.world.age % HZ == 0 {
-            println!("timestep: {}, fps: {}", self.world.age, ctx.time.fps());
+            println!(
+                "timestep: {}, fps: {}, frames: {}",
+                self.world.age,
+                ctx.time.fps(),
+                self.frame_buffer.len()
+            );
         }
+
+        let frame = ctx.gfx.frame().clone();
+        self.frame_buffer.push(frame);
 
         Ok(())
     }
@@ -721,7 +735,6 @@ pub fn get_world() -> World {
 }
 
 pub fn run() -> GameResult {
-
     let world = get_world();
 
     // if cfg!(debug_assertions) && env::var("yes_i_really_want_debug_mode").is_err() {
@@ -746,6 +759,12 @@ pub fn run() -> GameResult {
             height: W_FLOAT,
 
             ..Default::default()
+        })
+        .window_setup(WindowSetup {
+            title: String::from("langlands"),
+            vsync: false,
+            samples: NumSamples::One,
+            ..Default::default()
         });
 
     let (mut ctx, event_loop) = cb.build()?;
@@ -769,7 +788,7 @@ pub fn gauge() {
 pub fn main() {
     assert!(W_SIZE % N_CELLS == 0);
     assert!(B_RADIUS < CELL_SIZE as f32);
-    
+
     // gauge();
     run();
 }
