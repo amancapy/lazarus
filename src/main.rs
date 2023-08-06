@@ -119,7 +119,6 @@ pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2) {
     let centre_dist = c1c2.length();
     let (r1, r2) = (b.radius, O_RADIUS);
 
-    // need to add alignment measure, thankfully since both beings will check, damange update is only local.
     (r1 + r2 - centre_dist, centre_dist, c1c2)
 }
 
@@ -133,8 +132,6 @@ pub fn b_collides_s(b: &Being, s: &Speechlet) -> bool {
     let c1c2 = s.pos - b.pos;
     let centre_dist = c1c2.length();
     let (r1, r2) = (b.radius, S_RADIUS);
-    
-    // alignment measure here as well
 
     r1 + r2 - centre_dist > 0.
 }
@@ -179,7 +176,6 @@ pub struct Speechlet {
     pos: Vec2,
     age: f32,
     heard: bool,
-    
 
     pos_update: Vec2,
     age_update: f32,
@@ -307,7 +303,7 @@ impl World {
             pos_update: Vec2::new(0., 0.),
             age_update: 0.,
 
-            heard: false
+            heard: false,
         };
 
         let k = self.speechlets.insert(speechlet);
@@ -348,18 +344,17 @@ impl World {
 
             if !oob(newij, S_RADIUS) {
                 s.pos_update = move_vec;
-            }
-
-            else {
-                    // TEMP TEMP TEMP TEMP NOTICE TEMP TO BE FIXED
-                    let newij = Vec2::new(rng.sample(rdist), rng.sample(rdist));
-                    s.pos = newij;
+            } else {
+                // TEMP TEMP TEMP TEMP NOTICE TEMP TO BE FIXED
+                let newij = Vec2::new(rng.sample(rdist), rng.sample(rdist));
+                s.pos = newij;
             }
         })
     }
 
-    pub fn check_collisions(&mut self, timestep: usize) {
+    pub fn check_collisions(&mut self, timestep: usize, substeps: usize) {
         let w = N_CELLS as isize;
+        let s = substeps as f32;
 
         for i in 0..N_CELLS {
             for j in 0..N_CELLS {
@@ -403,6 +398,15 @@ impl World {
                                         let new_pos = b1.pos - half_dist;
                                         if !oob(new_pos, b1.radius) {
                                             b1.pos_update -= half_dist;
+                                        }
+
+                                        let b1_dir = dir_from_theta(b1.rotation);
+                                        let axis_alignment = b1_dir.dot(c1c2.normalize());
+                                        if axis_alignment > 0. {
+                                            b1.energy_update -= B_HEADON_DAMAGE * axis_alignment / s;
+                                        } else {
+                                            b1.energy_update -=
+                                                B_REAR_DAMAGE * axis_alignment.abs() / s;
                                         }
                                     }
                                 }
@@ -569,7 +573,7 @@ impl World {
     pub fn step(&mut self, substeps: usize) {
         for _ in 0..substeps {
             self.move_beings(substeps);
-            self.check_collisions(self.age);
+            self.check_collisions(self.age, substeps);
             self.update_cells();
         }
 
@@ -667,7 +671,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
         canvas.draw(&self.obstruct_instances, param);
         canvas.draw(&self.food_instances, param);
         canvas.draw(&self.speechlet_instances, param);
-        
+
         canvas.finish(_ctx)
     }
 }
@@ -688,7 +692,7 @@ pub fn get_world() -> World {
         );
     }
 
-    for i in 0..100 {
+    for i in 0..0 {
         world.add_obstruct(Vec2::new(rng.sample(rdist), rng.sample(rdist)));
     }
 
