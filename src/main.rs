@@ -3,10 +3,10 @@ use ggez::conf::WindowMode;
 use ggez::conf::WindowSetup;
 use ggez::event;
 use ggez::glam::*;
-use ggez::graphics::Canvas;
-use ggez::graphics::Image;
+use ggez::graphics;
 use ggez::graphics::ImageEncodingFormat;
-use ggez::graphics::{self, Color};
+use ggez::graphics::ImageFormat;
+use ggez::graphics::{Color, Image};
 use ggez::{Context, GameResult};
 use rand::{distributions::Uniform, prelude::*};
 use slotmap::DefaultKey;
@@ -14,7 +14,6 @@ use slotmap::SlotMap;
 use std::env;
 use std::f32::consts::PI;
 use std::path;
-use std::path::Path;
 
 #[rustfmt::skip]
 mod consts {
@@ -37,7 +36,7 @@ mod consts {
     pub const BASE_MOV_SPEED:                           f32 = 1.;
     pub const BASE_ANG_SPEED_DEGREES:                   f32 = 10.;
 
-    pub const B_START_ENERGY:                           f32 = 10.;
+    pub const B_START_ENERGY:                           f32 = 20.;
     pub const O_START_HEALTH:                           f32 = 5.;
     pub const F_START_AGE:                              f32 = 2.;
     pub const S_START_AGE:                              f32 = 3.;
@@ -51,11 +50,11 @@ mod consts {
     pub const B_REAR_DAMAGE:                            f32 = 1.;
     pub const HEADON_B_HITS_O_DAMAGE:                   f32 = 0.1;
     pub const SPAWN_O_COST:                             f32 = 1.;                           // cost for a being to spawn an obstruct at their rear
-    
+
     pub const LOW_ENERGY_SPEED_DAMP_RATE:               f32 = 0.5;                          // beings slow down when their energy runs low
     pub const OFF_DIR_MOVEMENT_SPEED_DAMP_RATE:         f32 = 0.5;                          // beings slow down when not moving face-forward
 
-    pub const N_FOOD_SPAWN_PER_STEP:                  usize = 0; 
+    pub const N_FOOD_SPAWN_PER_STEP:                  usize = 1; 
 
     pub const SPEECHLET_LEN:                          usize = 32;                           // length of the sound vector a being can emit
     pub const B_OUTPUT_LEN:                           usize = SPEECHLET_LEN + 5;             // move_forward, rotate_left, rotate_right, spawn_obstruct, speak
@@ -643,22 +642,21 @@ impl MainState {
 
 impl event::EventHandler<ggez::GameError> for MainState {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
-        let frame = ctx.gfx.frame().clone();
-
         // get frame buffer
         // chunk the frame for each being
         // forward pass on each being
         // update being actions
+        
 
-        self.world.step(4);
-
+        self.world.step(1);
 
         if self.world.age % HZ == 0 {
             println!(
-                "timestep: {}, fps: {}, frames: {}",
+                "timestep: {}, fps: {}, frames: {}, being_count: {}",
                 self.world.age,
                 ctx.time.fps(),
-                self.frame_buffer.len()
+                self.frame_buffer.len(),
+                self.world.beings.len()
             );
         }
 
@@ -706,8 +704,12 @@ impl event::EventHandler<ggez::GameError> for MainState {
         canvas.draw(&self.obstruct_instances, param);
         canvas.draw(&self.food_instances, param);
         canvas.draw(&self.speechlet_instances, param);
+
+        let frame = _ctx.gfx.frame().clone();
+        self.frame_buffer.push(frame);
         
-        canvas.finish(_ctx)
+        // canvas.finish(_ctx);
+        Ok(())
     }
 }
 
