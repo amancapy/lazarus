@@ -5,6 +5,7 @@ use ggez::event;
 use ggez::glam::*;
 use ggez::graphics::Canvas;
 use ggez::graphics::Image;
+use ggez::graphics::ImageEncodingFormat;
 use ggez::graphics::{self, Color};
 use ggez::{Context, GameResult};
 use rand::{distributions::Uniform, prelude::*};
@@ -13,6 +14,7 @@ use slotmap::SlotMap;
 use std::env;
 use std::f32::consts::PI;
 use std::path;
+use std::path::Path;
 
 #[rustfmt::skip]
 mod consts {
@@ -27,7 +29,7 @@ mod consts {
     pub const B_SPEED:                                  f32 = 1.;
     pub const S_SPEED:                                  f32 = 1.;
 
-    pub const B_RADIUS:                                 f32 = 4.5;
+    pub const B_RADIUS:                                 f32 = 4.9;
     pub const O_RADIUS:                                 f32 = 4.;
     pub const F_RADIUS:                                 f32 = 2.5;
     pub const S_RADIUS:                                 f32 = 2.5;
@@ -40,24 +42,20 @@ mod consts {
     pub const F_START_AGE:                              f32 = 2.;
     pub const S_START_AGE:                              f32 = 3.;
 
-    pub const B_ENERGY_LEAK:                            f32 = 0.005;
-    pub const O_HEALTH_LEAK:                            f32 = 0.002;
-    pub const F_VAL_LEAK:                               f32 = 0.002;
-
-    pub const B_TIRE_RATE:                              f32 = 0.;
-    pub const O_AGE_RATE:                               f32 = 0.;
-    pub const F_AGE_RATE:                               f32 = 0.;
-    pub const S_SOFTEN_RATE:                            f32 = 0.;
+    pub const B_TIRE_RATE:                              f32 = 0.005;
+    pub const O_AGE_RATE:                               f32 = 0.002;
+    pub const F_AGE_RATE:                               f32 = 0.002;
+    pub const S_SOFTEN_RATE:                            f32 = 0.005;
 
     pub const B_HEADON_DAMAGE:                          f32 = 0.25;
     pub const B_REAR_DAMAGE:                            f32 = 1.;
-    pub const TAN_B_HITS_O_DAMAGE:                      f32 = 1.;
     pub const HEADON_B_HITS_O_DAMAGE:                   f32 = 0.1;
     pub const SPAWN_O_COST:                             f32 = 1.;                           // cost for a being to spawn an obstruct at their rear
+    
     pub const LOW_ENERGY_SPEED_DAMP_RATE:               f32 = 0.5;                          // beings slow down when their energy runs low
     pub const OFF_DIR_MOVEMENT_SPEED_DAMP_RATE:         f32 = 0.5;                          // beings slow down when not moving face-forward
 
-    pub const N_FOOD_SPAWN_PER_STEP:                  usize = 1; 
+    pub const N_FOOD_SPAWN_PER_STEP:                  usize = 0; 
 
     pub const SPEECHLET_LEN:                          usize = 32;                           // length of the sound vector a being can emit
     pub const B_OUTPUT_LEN:                           usize = SPEECHLET_LEN + 5;             // move_forward, rotate_left, rotate_right, spawn_obstruct, speak
@@ -645,7 +643,16 @@ impl MainState {
 
 impl event::EventHandler<ggez::GameError> for MainState {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
+        let frame = ctx.gfx.frame().clone();
+
+        // get frame buffer
+        // chunk the frame for each being
+        // forward pass on each being
+        // update being actions
+
         self.world.step(4);
+
+
         if self.world.age % HZ == 0 {
             println!(
                 "timestep: {}, fps: {}, frames: {}",
@@ -654,9 +661,6 @@ impl event::EventHandler<ggez::GameError> for MainState {
                 self.frame_buffer.len()
             );
         }
-
-        let frame = ctx.gfx.frame().clone();
-        self.frame_buffer.push(frame);
 
         Ok(())
     }
@@ -702,7 +706,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
         canvas.draw(&self.obstruct_instances, param);
         canvas.draw(&self.food_instances, param);
         canvas.draw(&self.speechlet_instances, param);
-
+        
         canvas.finish(_ctx)
     }
 }
@@ -789,6 +793,6 @@ pub fn main() {
     assert!(W_SIZE % N_CELLS == 0);
     assert!(B_RADIUS < CELL_SIZE as f32);
 
-    gauge();
-    // run();
+    // gauge();
+    run();
 }
