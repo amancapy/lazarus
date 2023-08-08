@@ -6,13 +6,15 @@ use ggez::glam::*;
 use ggez::graphics;
 use ggez::graphics::{Color, Image};
 use ggez::{Context, GameResult};
-use rand::{distributions::{Uniform, Standard}, prelude::*};
+use rand::{thread_rng, distributions::{Uniform, Standard}};
 use slotmap::DefaultKey;
 use slotmap::SlotMap;
 use std::env;
 use std::f32::consts::PI;
 use std::path;
 
+use anyhow::Result;
+use tch::{nn, nn::ModuleT, nn::OptimizerConfig, Device, Tensor, Kind};
 
 #[rustfmt::skip]
 mod consts {

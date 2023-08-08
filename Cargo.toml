@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+anyhow = "1.0.72"
 ggez = "0.9.3"
 rand = "0.8.5"
 slotmap = "1.0.6"
