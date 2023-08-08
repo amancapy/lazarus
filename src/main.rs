@@ -4,8 +4,6 @@ use ggez::conf::WindowSetup;
 use ggez::event;
 use ggez::glam::*;
 use ggez::graphics;
-use ggez::graphics::ImageEncodingFormat;
-use ggez::graphics::ImageFormat;
 use ggez::graphics::{Color, Image};
 use ggez::{Context, GameResult};
 use rand::{distributions::Uniform, prelude::*};
@@ -15,33 +13,34 @@ use std::env;
 use std::f32::consts::PI;
 use std::path;
 
+
 #[rustfmt::skip]
 mod consts {
     use std::f32::INFINITY;
 
     pub const W_SIZE: usize = 1000;
-    pub const N_CELLS: usize = 200;
+    pub const N_CELLS: usize = 250;
     pub const CELL_SIZE: usize = W_SIZE / N_CELLS;
     pub const W_FLOAT: f32 = W_SIZE as f32;
     pub const HZ: usize = 60;
 
-    pub const B_SPEED:                                  f32 = 1.;
+    pub const B_SPEED:                                  f32 = 2.;
     pub const S_SPEED:                                  f32 = 1.;
 
-    pub const B_RADIUS:                                 f32 = 4.9;
-    pub const O_RADIUS:                                 f32 = 4.;
-    pub const F_RADIUS:                                 f32 = 2.5;
-    pub const S_RADIUS:                                 f32 = 2.5;
+    pub const B_RADIUS:                                 f32 = 2.;
+    pub const O_RADIUS:                                 f32 = 1.5;
+    pub const F_RADIUS:                                 f32 = 1.;
+    pub const S_RADIUS:                                 f32 = 1.;
 
-    pub const BASE_MOV_SPEED:                           f32 = 1.;
     pub const BASE_ANG_SPEED_DEGREES:                   f32 = 10.;
 
     pub const B_START_ENERGY:                           f32 = 20.;
     pub const O_START_HEALTH:                           f32 = 5.;
     pub const F_START_AGE:                              f32 = 2.;
     pub const S_START_AGE:                              f32 = 3.;
+    pub const F_VAL:                                    f32 = 3.;
 
-    pub const B_TIRE_RATE:                              f32 = 0.005;
+    pub const B_TIRE_RATE:                              f32 = 0.002;
     pub const O_AGE_RATE:                               f32 = 0.002;
     pub const F_AGE_RATE:                               f32 = 0.002;
     pub const S_SOFTEN_RATE:                            f32 = 0.005;
@@ -57,7 +56,7 @@ mod consts {
     pub const N_FOOD_SPAWN_PER_STEP:                  usize = 1; 
 
     pub const SPEECHLET_LEN:                          usize = 32;                           // length of the sound vector a being can emit
-    pub const B_OUTPUT_LEN:                           usize = SPEECHLET_LEN + 5;             // move_forward, rotate_left, rotate_right, spawn_obstruct, speak
+    pub const B_OUTPUT_LEN:                           usize = SPEECHLET_LEN + 5;            // move_forward, rotate_left, rotate_right, spawn_obstruct, speak
 }
 
 use consts::*;
@@ -138,6 +137,22 @@ pub fn b_collides_s(b: &Being, s: &Speechlet) -> bool {
 
     r1 + r2 - centre_dist > 0.
 }
+
+
+pub struct Neuron {
+    weights: Vec<f32>,
+    bias: f32,
+}
+
+pub struct Layer {
+    inputs: Vec<f32>,
+    neurons: Vec<Neuron>,
+}
+
+pub struct Densenet {
+    layers: Vec<Layer>
+}
+
 
 #[derive(Debug)]
 pub struct Being {
@@ -280,7 +295,7 @@ impl World {
         let food = Food {
             pos: pos,
             age: 5.,
-            val: 1.,
+            val: F_VAL,
             eaten: false,
 
             id: self.food_id,
@@ -388,7 +403,7 @@ impl World {
                                 if !(id1 == id2) {
                                     let (overlap, centre_dist, c1c2) = b_collides_b(
                                         &self.beings.get(*id1).unwrap(),
-                                        self.beings.get(*id2).unwrap(),
+                                        &self.beings.get(*id2).unwrap(),
                                     );
 
                                     if overlap > 0. {
@@ -642,8 +657,9 @@ impl MainState {
 
 impl event::EventHandler<ggez::GameError> for MainState {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
+        // let frame = self.frame_buffer.pop();
         // get frame buffer
-        // chunk the frame for each being
+        // subimage the frame for each being
         // forward pass on each being
         // update being actions
         
@@ -705,9 +721,10 @@ impl event::EventHandler<ggez::GameError> for MainState {
         canvas.draw(&self.food_instances, param);
         canvas.draw(&self.speechlet_instances, param);
 
-        let frame = _ctx.gfx.frame().clone();
-        self.frame_buffer.push(frame);
+        // let frame = _ctx.gfx.frame().clone();
         
+        // self.frame_buffer.push(frame);
+
         // canvas.finish(_ctx);
         Ok(())
     }
@@ -795,6 +812,6 @@ pub fn main() {
     assert!(W_SIZE % N_CELLS == 0);
     assert!(B_RADIUS < CELL_SIZE as f32);
 
-    // gauge();
-    run();
+    gauge();
+    // run();
 }
