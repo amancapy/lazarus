@@ -12,7 +12,6 @@ use slotmap::SlotMap;
 use std::env;
 use std::f32::consts::PI;
 use std::path;
-use libm::tanh;
 
 
 #[rustfmt::skip]
@@ -20,7 +19,7 @@ mod consts {
     use std::f32::INFINITY;
 
     pub const W_SIZE: usize = 1000;
-    pub const N_CELLS: usize = 250;
+    pub const N_CELLS: usize = 100;
     pub const CELL_SIZE: usize = W_SIZE / N_CELLS;
     pub const W_FLOAT: f32 = W_SIZE as f32;
     pub const HZ: usize = 60;
@@ -28,10 +27,10 @@ mod consts {
     pub const B_SPEED:                                  f32 = 2.;
     pub const S_SPEED:                                  f32 = 1.;
 
-    pub const B_RADIUS:                                 f32 = 2.;
-    pub const O_RADIUS:                                 f32 = 1.5;
-    pub const F_RADIUS:                                 f32 = 1.;
-    pub const S_RADIUS:                                 f32 = 1.;
+    pub const B_RADIUS:                                 f32 = 5.;
+    pub const O_RADIUS:                                 f32 = 4.;
+    pub const F_RADIUS:                                 f32 = 3.;
+    pub const S_RADIUS:                                 f32 = 2.;
 
     pub const BASE_ANG_SPEED_DEGREES:                   f32 = 10.;
 
@@ -57,7 +56,7 @@ mod consts {
     pub const N_FOOD_SPAWN_PER_STEP:                  usize = 1; 
 
     pub const SPEECHLET_LEN:                          usize = 32;                           // length of the sound vector a being can emit
-    pub const B_OUTPUT_LEN:                           usize = SPEECHLET_LEN + 5;            // move_forward, rotate_left, rotate_right, spawn_obstruct, speak
+    pub const B_OUTPUT_LEN:                           usize = 3;                            // f-b, l-r, rotate
 }
 
 use consts::*;
@@ -614,6 +613,7 @@ struct MainState {
     food_instances: graphics::InstanceArray,
     speechlet_instances: graphics::InstanceArray,
     world: World,
+    sample: usize,
 
     frame_buffer: Vec<Image>,
 }
@@ -635,8 +635,9 @@ impl MainState {
             obstruct_instances: obstruct_instances,
             food_instances: food_instances,
             speechlet_instances: speechlet_instances,
-
             world: w,
+            sample: 5,
+
             frame_buffer: vec![],
         })
     }
@@ -651,7 +652,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
         // update being actions
         
 
-        self.world.step(1);
+            self.world.step(1);
 
         if self.world.age % HZ == 0 {
             println!(
@@ -667,7 +668,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
     }
 
     fn draw(&mut self, _ctx: &mut Context) -> Result<(), ggez::GameError> {
-        let mut canvas = graphics::Canvas::from_frame(_ctx, Color::BLACK);
+        if self.world.age % self.sample == 0 {let mut canvas = graphics::Canvas::from_frame(_ctx, Color::BLACK);
         self.being_instances
             .set(self.world.beings.iter().map(|(k, b)| {
                 let xy = b.pos;
@@ -708,12 +709,15 @@ impl event::EventHandler<ggez::GameError> for MainState {
         canvas.draw(&self.food_instances, param);
         canvas.draw(&self.speechlet_instances, param);
 
-        // let frame = _ctx.gfx.frame().clone();
+        let frame = _ctx.gfx.frame().clone();
         
-        // self.frame_buffer.push(frame);
+        self.frame_buffer.push(frame);
 
-        // canvas.finish(_ctx);
-        Ok(())
+        canvas.finish(_ctx)
+    }
+        else {
+            Ok(())
+        }
     }
 }
 
@@ -800,7 +804,6 @@ pub fn main() {
     assert!(B_RADIUS < CELL_SIZE as f32);
 
     // gauge();
-    // run();
+    run();
 
-    Layer::aa(10, 10);
 }
