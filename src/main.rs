@@ -6,12 +6,13 @@ use ggez::glam::*;
 use ggez::graphics;
 use ggez::graphics::{Color, Image};
 use ggez::{Context, GameResult};
-use rand::{distributions::Uniform, prelude::*};
+use rand::{distributions::{Uniform, Standard}, prelude::*};
 use slotmap::DefaultKey;
 use slotmap::SlotMap;
 use std::env;
 use std::f32::consts::PI;
 use std::path;
+use libm::tanh;
 
 
 #[rustfmt::skip]
@@ -138,20 +139,6 @@ pub fn b_collides_s(b: &Being, s: &Speechlet) -> bool {
     r1 + r2 - centre_dist > 0.
 }
 
-
-pub struct Neuron {
-    weights: Vec<f32>,
-    bias: f32,
-}
-
-pub struct Layer {
-    inputs: Vec<f32>,
-    neurons: Vec<Neuron>,
-}
-
-pub struct Densenet {
-    layers: Vec<Layer>
-}
 
 
 #[derive(Debug)]
@@ -812,6 +799,8 @@ pub fn main() {
     assert!(W_SIZE % N_CELLS == 0);
     assert!(B_RADIUS < CELL_SIZE as f32);
 
-    gauge();
+    // gauge();
     // run();
+
+    Layer::aa(10, 10);
 }
