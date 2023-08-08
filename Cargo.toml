@@ -9,3 +9,4 @@ edition = "2021"
 ggez = "0.9.3"
 rand = "0.8.5"
 slotmap = "1.0.6"
+tch = { version = "0.13.0", features = ["download-libtorch"] }

@@ -18,13 +18,14 @@ use std::path;
 mod consts {
     use std::f32::INFINITY;
 
-    pub const W_SIZE: usize = 1000;
-    pub const N_CELLS: usize = 100;
+    pub const W_SIZE: usize = 1024;
+    pub const N_CELLS: usize = 128;
     pub const CELL_SIZE: usize = W_SIZE / N_CELLS;
     pub const W_FLOAT: f32 = W_SIZE as f32;
     pub const HZ: usize = 60;
+    pub const VISION_SAMPLE_MULTIPLE: usize = 1;
 
-    pub const B_SPEED:                                  f32 = 2.;
+    pub const B_SPEED:                                  f32 = 0.5;
     pub const S_SPEED:                                  f32 = 1.;
 
     pub const B_RADIUS:                                 f32 = 5.;
@@ -613,7 +614,7 @@ struct MainState {
     food_instances: graphics::InstanceArray,
     speechlet_instances: graphics::InstanceArray,
     world: World,
-    sample: usize,
+    step: usize,
 
     frame_buffer: Vec<Image>,
 }
@@ -636,7 +637,7 @@ impl MainState {
             food_instances: food_instances,
             speechlet_instances: speechlet_instances,
             world: w,
-            sample: 5,
+            step: 0,
 
             frame_buffer: vec![],
         })
@@ -645,16 +646,18 @@ impl MainState {
 
 impl event::EventHandler<ggez::GameError> for MainState {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
-        // let frame = self.frame_buffer.pop();
+        self.step += 1;
         // get frame buffer
         // subimage the frame for each being
         // forward pass on each being
         // update being actions
         
 
-            self.world.step(1);
+        self.world.step(1);
 
         if self.world.age % HZ == 0 {
+            let frame = ctx.gfx.frame().to_pixels(&ctx.gfx).unwrap();
+
             println!(
                 "timestep: {}, fps: {}, frames: {}, being_count: {}",
                 self.world.age,
@@ -668,7 +671,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
     }
 
     fn draw(&mut self, _ctx: &mut Context) -> Result<(), ggez::GameError> {
-        if self.world.age % self.sample == 0 {let mut canvas = graphics::Canvas::from_frame(_ctx, Color::BLACK);
+        if self.step % VISION_SAMPLE_MULTIPLE == 0 {let mut canvas = graphics::Canvas::from_frame(_ctx, Color::BLACK);
         self.being_instances
             .set(self.world.beings.iter().map(|(k, b)| {
                 let xy = b.pos;
@@ -708,11 +711,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
         canvas.draw(&self.obstruct_instances, param);
         canvas.draw(&self.food_instances, param);
         canvas.draw(&self.speechlet_instances, param);
-
-        let frame = _ctx.gfx.frame().clone();
         
-        self.frame_buffer.push(frame);
-
         canvas.finish(_ctx)
     }
         else {
@@ -778,6 +777,7 @@ pub fn run() -> GameResult {
             title: String::from("langlands"),
             vsync: false,
             samples: NumSamples::One,
+            srgb: false,
             ..Default::default()
         });
 
