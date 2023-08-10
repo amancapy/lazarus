@@ -38,7 +38,7 @@ mod consts {
     use std::f32::INFINITY;
 
     pub const W_SIZE: usize = 1024;
-    pub const N_CELLS: usize = 32;
+    pub const N_CELLS: usize = 1;
     pub const CELL_SIZE: usize = W_SIZE / N_CELLS;
     pub const W_FLOAT: f32 = W_SIZE as f32;
     pub const W_USIZE: u32 = W_SIZE as u32;
@@ -47,10 +47,10 @@ mod consts {
 
     pub const VISION_SAMPLE_MULTIPLE: usize = 4;
 
-    pub const B_SPEED:                                  f32 = 0.1;
+    pub const B_SPEED:                                  f32 = 0.01;
     pub const S_SPEED:                                  f32 = 1.;
 
-    pub const B_RADIUS:                                 f32 = 15.;
+    pub const B_RADIUS:                                 f32 = 400.;
     pub const O_RADIUS:                                 f32 = 4.;
     pub const F_RADIUS:                                 f32 = 3.;
     pub const S_RADIUS:                                 f32 = 2.;
@@ -743,7 +743,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                     let xy = s.pos;
                     graphics::DrawParam::new()
                         .dest(xy.clone())
-                        .scale(Vec2::new(1., 1.) / 512. * 2. * S_RADIUS)
+                        .scale(Vec2::new(1., 1.) / 512. * S_RADIUS)
                         .rotation(s.rotation)
                 }));
 
@@ -768,12 +768,12 @@ pub fn get_world() -> World {
     let rdist = Uniform::new(1., (W_SIZE as f32) - 1.);
     let mut rng = thread_rng();
 
-    for i in 0..500 {
+    for i in 0..1 {
         world.add_being(
             B_RADIUS,
-            Vec2::new(rng.gen_range(1.0..W_FLOAT - 1.), rng.gen_range(1.0..W_FLOAT)),
-            rng.gen_range(-PI..PI),
-            B_SPEED,
+            Vec2::new(W_FLOAT / 2., W_FLOAT / 2.),
+            0.,
+            0.,
             B_START_ENERGY,
         );
     }
