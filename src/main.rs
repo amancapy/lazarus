@@ -10,6 +10,7 @@ use image::GenericImage;
 use image::GenericImageView;
 use image::Rgb;
 use image::RgbaImage;
+use image::SubImage;
 use image::imageops::FilterType;
 use image::imageops::resize;
 use rand::Rng;
@@ -40,7 +41,9 @@ mod consts {
     pub const W_FLOAT: f32 = W_SIZE as f32;
     pub const W_USIZE: u32 = W_SIZE as u32;
     pub const HZ: usize = 60;
-    pub const VISION_SAMPLE_MULTIPLE: usize = 1;
+    pub const B_FOV: u32 = 32;
+
+    pub const VISION_SAMPLE_MULTIPLE: usize = 4;
 
     pub const B_SPEED:                                  f32 = 0.5;
     pub const S_SPEED:                                  f32 = 1.;
@@ -658,20 +661,20 @@ impl MainState {
     }
 }
 
-pub fn save_frame(frame: Vec<u8>) {
-    let width = W_SIZE;
-    let height = W_SIZE;
+pub fn get_fovs(frame: Vec<u8>, beings: &SlotMap<DefaultKey, Being>) -> Vec<ImageBuffer <Rgba<u8>, Vec<u8>>> {
 
     let frame =
-        ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width as u32, height as u32, frame).expect("");
+        ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(W_USIZE, W_USIZE, frame).expect("");
 
-    for _ in 0..500 {
-        let a = frame.view(5, 5, 50, 50).clone();
-        let e = resize(&a
-            .to_image(), 12, 12, image::imageops::FilterType::Nearest).save_with_format(Path::new("abcd.png"), image::ImageFormat::Png);
-    }
+    beings.iter().map(|(_, b)| {
+        let (x, y) = (b.pos[0] as u32, b.pos[1] as u32);
 
-    // let _ = frame.save_with_format(Path::new("output.png"), image::ImageFormat::Png);
+        frame.view(x - B_FOV / 2 as u32, y - B_FOV / 2, B_FOV, B_FOV).to_image().clone()
+        
+        // let e = resize(&a
+            // .to_image(), 12, 12, image::imageops::FilterType::Nearest).save_with_format(Path::new("abcd.png"), image::ImageFormat::Png);
+    }).collect()
+
 }
 
 impl event::EventHandler<ggez::GameError> for MainState {
@@ -686,7 +689,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
 
         if self.world.age % HZ == 0 {
             let frame = ctx.gfx.frame().to_pixels(&ctx.gfx).unwrap();
-            save_frame(frame);
+            get_fovs(frame, &self.world.beings);
 
             println!(
                 "timestep: {}, fps: {}, frames: {}, being_count: {}",
