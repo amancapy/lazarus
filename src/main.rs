@@ -6,6 +6,7 @@ use ggez::glam::*;
 use ggez::graphics;
 use ggez::graphics::{Color, Image};
 use ggez::{Context, GameResult};
+use rand::Rng;
 use rand::{thread_rng, distributions::{Uniform, Standard}};
 use slotmap::DefaultKey;
 use slotmap::SlotMap;
@@ -13,8 +14,14 @@ use std::env;
 use std::f32::consts::PI;
 use std::path;
 
-use anyhow::Result;
-use tch::{nn, nn::ModuleT, nn::OptimizerConfig, Device, Tensor, Kind};
+
+use image::{ImageBuffer, Rgba, ImageOutputFormat};
+use std::fs::File;
+use std::path::Path;
+
+// use anyhow::Result;
+// use tch::{nn, nn::ModuleT, nn::OptimizerConfig, Device, Tensor, Kind};
+
 
 #[rustfmt::skip]
 mod consts {
@@ -429,7 +436,6 @@ impl World {
                                 if overlap > 0. {
                                     let d_p = overlap / centre_dist * c1c2;
                                     let half_dist = d_p / 1.9;
-
                                     b.pos_update -= half_dist;
 
                                     let b_dir = dir_from_theta(b.rotation);
@@ -658,8 +664,25 @@ impl event::EventHandler<ggez::GameError> for MainState {
         self.world.step(1);
 
         if self.world.age % HZ == 0 {
-            let frame = ctx.gfx.frame().to_pixels(&ctx.gfx).unwrap();
+            let mut frame = ctx.gfx.frame().to_pixels(&ctx.gfx).unwrap();
 
+            let width = W_SIZE;
+            let height = W_SIZE;
+
+            // Create an ImageBuffer from the provided data
+            // let image = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width as u32, height as u32, frame).expect("Failed to create ImageBuffer");
+
+            // Path to save the PNG file
+            // let file_path = "output.png";
+
+            // Save the ImageBuffer as a PNG file
+            // if let Err(e) = image.save_with_format(Path::new(file_path), image::ImageFormat::Png) {
+            // eprintln!("Error: {:?}", e);
+            // } else {
+                // println!("Image saved as PNG: {}", file_path);
+            // }
+
+            // dbg!(frame.len());
             println!(
                 "timestep: {}, fps: {}, frames: {}, being_count: {}",
                 self.world.age,
@@ -807,5 +830,4 @@ pub fn main() {
 
     // gauge();
     run();
-
 }
