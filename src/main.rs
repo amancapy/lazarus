@@ -47,17 +47,17 @@ mod consts {
 
     pub const VISION_SAMPLE_MULTIPLE: usize = 4;
 
-    pub const B_SPEED:                                  f32 = 0.5;
+    pub const B_SPEED:                                  f32 = 0.1;
     pub const S_SPEED:                                  f32 = 1.;
 
-    pub const B_RADIUS:                                 f32 = 25.;
+    pub const B_RADIUS:                                 f32 = 15.;
     pub const O_RADIUS:                                 f32 = 4.;
     pub const F_RADIUS:                                 f32 = 3.;
     pub const S_RADIUS:                                 f32 = 2.;
 
     pub const BASE_ANG_SPEED_DEGREES:                   f32 = 10.;
 
-    pub const B_START_ENERGY:                           f32 = 20.;
+    pub const B_START_ENERGY:                           f32 = INFINITY;
     pub const O_START_HEALTH:                           f32 = 5.;
     pub const F_START_AGE:                              f32 = 2.;
     pub const S_START_AGE:                              f32 = 3.;
@@ -76,7 +76,7 @@ mod consts {
     pub const LOW_ENERGY_SPEED_DAMP_RATE:               f32 = 0.5;                          // beings slow down when their energy runs low
     pub const OFF_DIR_MOVEMENT_SPEED_DAMP_RATE:         f32 = 0.5;                          // beings slow down when not moving face-forward
 
-    pub const N_FOOD_SPAWN_PER_STEP:                  usize = 1; 
+    pub const N_FOOD_SPAWN_PER_STEP:                  usize = 10; 
 
     pub const SPEECHLET_LEN:                          usize = 32;                           // length of the sound vector a being can emit
     pub const B_OUTPUT_LEN:                           usize = 3;                            // f-b, l-r, rotate
@@ -692,8 +692,9 @@ impl event::EventHandler<ggez::GameError> for MainState {
 
 
         if (self.world.age + 1) % HZ == 0 {
-            let frame = ctx.gfx.frame().to_pixels(&ctx.gfx).unwrap();
-            get_fovs(frame, &self.world.beings);
+            
+            // let frame = ctx.gfx.frame().to_pixels(&ctx.gfx).unwrap();
+            // get_fovs(frame, &self.world.beings);
 
             println!(
                 "timestep: {}, fps: {}, frames: {}, being_count: {}",
@@ -703,8 +704,8 @@ impl event::EventHandler<ggez::GameError> for MainState {
                 self.world.beings.len()
             );
         }
+        self.world.step(16);
 
-        self.world.step(1);
 
         Ok(())
     }
@@ -717,7 +718,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                     let xy = b.pos - Vec2::new(b.radius, b.radius);
                     graphics::DrawParam::new()
                         .dest(xy.clone())
-                        .scale(Vec2::new(1., 1.) / 400. * B_RADIUS)
+                        .scale(Vec2::new(1., 1.) / 400. * 2. * B_RADIUS)
                         .rotation(b.rotation)
                 }));
 
@@ -726,7 +727,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                     let xy = o.pos;
                     graphics::DrawParam::new()
                         .dest(xy.clone())
-                        .scale(Vec2::new(1., 1.) / 800. * O_RADIUS)
+                        .scale(Vec2::new(1., 1.) / 800. * 2. * O_RADIUS)
                 }));
 
             self.food_instances
@@ -734,7 +735,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                     let xy = f.pos;
                     graphics::DrawParam::new()
                         .dest(xy.clone())
-                        .scale(Vec2::new(1., 1.) / 2048. * F_RADIUS)
+                        .scale(Vec2::new(1., 1.) / 2048. * 2. * F_RADIUS)
                 }));
 
             self.speechlet_instances
@@ -742,7 +743,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                     let xy = s.pos;
                     graphics::DrawParam::new()
                         .dest(xy.clone())
-                        .scale(Vec2::new(1., 1.) / 512. * S_RADIUS)
+                        .scale(Vec2::new(1., 1.) / 512. * 2. * S_RADIUS)
                         .rotation(s.rotation)
                 }));
 
@@ -751,6 +752,8 @@ impl event::EventHandler<ggez::GameError> for MainState {
             canvas.draw(&self.obstruct_instances, param);
             canvas.draw(&self.food_instances, param);
             canvas.draw(&self.speechlet_instances, param);
+            
+            
 
             canvas.finish(_ctx)
         } else {
@@ -768,7 +771,7 @@ pub fn get_world() -> World {
     for i in 0..500 {
         world.add_being(
             B_RADIUS,
-            Vec2::new(rng.sample(rdist), rng.sample(rdist)),
+            Vec2::new(rng.gen_range(1.0..W_FLOAT - 1.), rng.gen_range(1.0..W_FLOAT)),
             rng.gen_range(-PI..PI),
             B_SPEED,
             B_START_ENERGY,
@@ -807,7 +810,7 @@ pub fn run() -> GameResult {
         })
         .window_setup(WindowSetup {
             title: String::from("langlands"),
-            vsync: false,
+            vsync: true,
             samples: NumSamples::One,
             srgb: false,
             ..Default::default()
