@@ -12,6 +12,7 @@ use image::Rgb;
 use image::RgbaImage;
 use image::SubImage;
 use image::imageops::FilterType;
+use image::imageops::FilterType::Nearest;
 use image::imageops::resize;
 use rand::Rng;
 use rand::{
@@ -37,19 +38,19 @@ mod consts {
     use std::f32::INFINITY;
 
     pub const W_SIZE: usize = 1024;
-    pub const N_CELLS: usize = 128;
+    pub const N_CELLS: usize = 32;
     pub const CELL_SIZE: usize = W_SIZE / N_CELLS;
     pub const W_FLOAT: f32 = W_SIZE as f32;
     pub const W_USIZE: u32 = W_SIZE as u32;
     pub const HZ: usize = 60;
-    pub const B_FOV: u32 = 48;
+    pub const B_FOV: u32 = 100;
 
     pub const VISION_SAMPLE_MULTIPLE: usize = 4;
 
     pub const B_SPEED:                                  f32 = 0.5;
     pub const S_SPEED:                                  f32 = 1.;
 
-    pub const B_RADIUS:                                 f32 = 5.;
+    pub const B_RADIUS:                                 f32 = 25.;
     pub const O_RADIUS:                                 f32 = 4.;
     pub const F_RADIUS:                                 f32 = 3.;
     pub const S_RADIUS:                                 f32 = 2.;
@@ -671,6 +672,7 @@ pub fn get_fovs(frame: Vec<u8>, beings: &SlotMap<DefaultKey, Being>) -> Vec<Imag
         let (x, y) = (b.pos[0] as u32, b.pos[1] as u32);
 
         let a = frame.view(x - B_FOV / 2 as u32, y - B_FOV / 2, B_FOV, B_FOV).to_image().clone();
+        // let a = resize(&a, 16, 16, Nearest);
 
         let _ = a.save_with_format(PathBuf::from(format!("visions/{}.png", b.id),), image::ImageFormat::Png);
         a
@@ -711,8 +713,8 @@ impl event::EventHandler<ggez::GameError> for MainState {
         if self.step % VISION_SAMPLE_MULTIPLE == 0 {
             let mut canvas = graphics::Canvas::from_frame(_ctx, Color::BLACK);
             self.being_instances
-                .set(self.world.beings.iter().map(|(k, b)| {
-                    let xy = b.pos + Vec2::new(b.radius, b.radius);
+                .set(self.world.beings.iter().map(|(_, b)| {
+                    let xy = b.pos - Vec2::new(b.radius, b.radius);
                     graphics::DrawParam::new()
                         .dest(xy.clone())
                         .scale(Vec2::new(1., 1.) / 400. * B_RADIUS)
@@ -720,7 +722,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                 }));
 
             self.obstruct_instances
-                .set(self.world.obstructs.iter().map(|(k, o)| {
+                .set(self.world.obstructs.iter().map(|(_, o)| {
                     let xy = o.pos;
                     graphics::DrawParam::new()
                         .dest(xy.clone())
@@ -728,7 +730,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                 }));
 
             self.food_instances
-                .set(self.world.foods.iter().map(|(k, f)| {
+                .set(self.world.foods.iter().map(|(_, f)| {
                     let xy = f.pos;
                     graphics::DrawParam::new()
                         .dest(xy.clone())
@@ -736,7 +738,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                 }));
 
             self.speechlet_instances
-                .set(self.world.speechlets.iter().map(|(k, s)| {
+                .set(self.world.speechlets.iter().map(|(_, s)| {
                     let xy = s.pos;
                     graphics::DrawParam::new()
                         .dest(xy.clone())
@@ -786,13 +788,6 @@ pub fn get_world() -> World {
 
 pub fn run() -> GameResult {
     let world = get_world();
-
-    // if cfg!(debug_assertions) && env::var("yes_i_really_want_debug_mode").is_err() {
-    //     eprintln!(
-    //         "Note: Release mode will improve performance greatly.\n    \
-    //          e.g. use `cargo run --example spritebatch --release`"
-    //     );
-    // }
 
     let resource_dir = if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
         let mut path = path::PathBuf::from(manifest_dir);
