@@ -7,21 +7,22 @@ use ggez::graphics;
 use ggez::graphics::{Color, Image};
 use ggez::{Context, GameResult};
 use rand::Rng;
-use rand::{thread_rng, distributions::{Uniform, Standard}};
+use rand::{
+    distributions::{Standard, Uniform},
+    thread_rng,
+};
 use slotmap::DefaultKey;
 use slotmap::SlotMap;
 use std::env;
 use std::f32::consts::PI;
 use std::path;
 
-
-use image::{ImageBuffer, Rgba, ImageOutputFormat};
+use image::{ImageBuffer, ImageOutputFormat, Rgba};
 use std::fs::File;
 use std::path::Path;
 
 // use anyhow::Result;
 // use tch::{nn, nn::ModuleT, nn::OptimizerConfig, Device, Tensor, Kind};
-
 
 #[rustfmt::skip]
 mod consts {
@@ -31,6 +32,7 @@ mod consts {
     pub const N_CELLS: usize = 128;
     pub const CELL_SIZE: usize = W_SIZE / N_CELLS;
     pub const W_FLOAT: f32 = W_SIZE as f32;
+    pub const W_USIZE: u32 = W_SIZE as u32;
     pub const HZ: usize = 60;
     pub const VISION_SAMPLE_MULTIPLE: usize = 1;
 
@@ -147,8 +149,6 @@ pub fn b_collides_s(b: &Being, s: &Speechlet) -> bool {
 
     r1 + r2 - centre_dist > 0.
 }
-
-
 
 #[derive(Debug)]
 pub struct Being {
@@ -652,6 +652,16 @@ impl MainState {
     }
 }
 
+pub fn save_frame(frame: Vec<u8>) {
+    let width = W_SIZE;
+    let height = W_SIZE;
+
+    let image = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width as u32, height as u32, frame)
+        .expect("");
+
+    let _ = image.save_with_format(Path::new("output.png"), image::ImageFormat::Png);
+}
+
 impl event::EventHandler<ggez::GameError> for MainState {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
         self.step += 1;
@@ -659,30 +669,13 @@ impl event::EventHandler<ggez::GameError> for MainState {
         // subimage the frame for each being
         // forward pass on each being
         // update being actions
-        
 
         self.world.step(1);
 
         if self.world.age % HZ == 0 {
-            let mut frame = ctx.gfx.frame().to_pixels(&ctx.gfx).unwrap();
+            let frame = ctx.gfx.frame().to_pixels(&ctx.gfx).unwrap();
+            save_frame(frame);
 
-            let width = W_SIZE;
-            let height = W_SIZE;
-
-            // Create an ImageBuffer from the provided data
-            // let image = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width as u32, height as u32, frame).expect("Failed to create ImageBuffer");
-
-            // Path to save the PNG file
-            // let file_path = "output.png";
-
-            // Save the ImageBuffer as a PNG file
-            // if let Err(e) = image.save_with_format(Path::new(file_path), image::ImageFormat::Png) {
-            // eprintln!("Error: {:?}", e);
-            // } else {
-                // println!("Image saved as PNG: {}", file_path);
-            // }
-
-            // dbg!(frame.len());
             println!(
                 "timestep: {}, fps: {}, frames: {}, being_count: {}",
                 self.world.age,
@@ -696,50 +689,50 @@ impl event::EventHandler<ggez::GameError> for MainState {
     }
 
     fn draw(&mut self, _ctx: &mut Context) -> Result<(), ggez::GameError> {
-        if self.step % VISION_SAMPLE_MULTIPLE == 0 {let mut canvas = graphics::Canvas::from_frame(_ctx, Color::BLACK);
-        self.being_instances
-            .set(self.world.beings.iter().map(|(k, b)| {
-                let xy = b.pos;
-                graphics::DrawParam::new()
-                    .dest(xy.clone())
-                    .scale(Vec2::new(1., 1.) / 400. * B_RADIUS)
-                    .rotation(b.rotation)
-            }));
+        if self.step % VISION_SAMPLE_MULTIPLE == 0 {
+            let mut canvas = graphics::Canvas::from_frame(_ctx, Color::BLACK);
+            self.being_instances
+                .set(self.world.beings.iter().map(|(k, b)| {
+                    let xy = b.pos;
+                    graphics::DrawParam::new()
+                        .dest(xy.clone())
+                        .scale(Vec2::new(1., 1.) / 400. * B_RADIUS)
+                        .rotation(b.rotation)
+                }));
 
-        self.obstruct_instances
-            .set(self.world.obstructs.iter().map(|(k, o)| {
-                let xy = o.pos;
-                graphics::DrawParam::new()
-                    .dest(xy.clone())
-                    .scale(Vec2::new(1., 1.) / 800. * O_RADIUS)
-            }));
+            self.obstruct_instances
+                .set(self.world.obstructs.iter().map(|(k, o)| {
+                    let xy = o.pos;
+                    graphics::DrawParam::new()
+                        .dest(xy.clone())
+                        .scale(Vec2::new(1., 1.) / 800. * O_RADIUS)
+                }));
 
-        self.food_instances
-            .set(self.world.foods.iter().map(|(k, f)| {
-                let xy = f.pos;
-                graphics::DrawParam::new()
-                    .dest(xy.clone())
-                    .scale(Vec2::new(1., 1.) / 2048. * F_RADIUS)
-            }));
+            self.food_instances
+                .set(self.world.foods.iter().map(|(k, f)| {
+                    let xy = f.pos;
+                    graphics::DrawParam::new()
+                        .dest(xy.clone())
+                        .scale(Vec2::new(1., 1.) / 2048. * F_RADIUS)
+                }));
 
-        self.speechlet_instances
-            .set(self.world.speechlets.iter().map(|(k, s)| {
-                let xy = s.pos;
-                graphics::DrawParam::new()
-                    .dest(xy.clone())
-                    .scale(Vec2::new(1., 1.) / 512. * S_RADIUS)
-                    .rotation(s.rotation)
-            }));
+            self.speechlet_instances
+                .set(self.world.speechlets.iter().map(|(k, s)| {
+                    let xy = s.pos;
+                    graphics::DrawParam::new()
+                        .dest(xy.clone())
+                        .scale(Vec2::new(1., 1.) / 512. * S_RADIUS)
+                        .rotation(s.rotation)
+                }));
 
-        let param = graphics::DrawParam::new();
-        canvas.draw(&self.being_instances, param);
-        canvas.draw(&self.obstruct_instances, param);
-        canvas.draw(&self.food_instances, param);
-        canvas.draw(&self.speechlet_instances, param);
-        
-        canvas.finish(_ctx)
-    }
-        else {
+            let param = graphics::DrawParam::new();
+            canvas.draw(&self.being_instances, param);
+            canvas.draw(&self.obstruct_instances, param);
+            canvas.draw(&self.food_instances, param);
+            canvas.draw(&self.speechlet_instances, param);
+
+            canvas.finish(_ctx)
+        } else {
             Ok(())
         }
     }
