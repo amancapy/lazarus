@@ -6,6 +6,12 @@ use ggez::glam::*;
 use ggez::graphics;
 use ggez::graphics::{Color, Image};
 use ggez::{Context, GameResult};
+use image::GenericImage;
+use image::GenericImageView;
+use image::Rgb;
+use image::RgbaImage;
+use image::imageops::FilterType;
+use image::imageops::resize;
 use rand::Rng;
 use rand::{
     distributions::{Standard, Uniform},
@@ -656,10 +662,16 @@ pub fn save_frame(frame: Vec<u8>) {
     let width = W_SIZE;
     let height = W_SIZE;
 
-    let image = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width as u32, height as u32, frame)
-        .expect("");
+    let frame =
+        ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width as u32, height as u32, frame).expect("");
 
-    let _ = image.save_with_format(Path::new("output.png"), image::ImageFormat::Png);
+    for _ in 0..500 {
+        let a = frame.view(5, 5, 50, 50).clone();
+        let e = resize(&a
+            .to_image(), 12, 12, image::imageops::FilterType::Nearest).save_with_format(Path::new("abcd.png"), image::ImageFormat::Png);
+    }
+
+    // let _ = frame.save_with_format(Path::new("output.png"), image::ImageFormat::Png);
 }
 
 impl event::EventHandler<ggez::GameError> for MainState {
