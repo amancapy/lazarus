@@ -649,13 +649,11 @@ impl MainState {
         let food = graphics::Image::from_path(ctx, "/green_circle.png")?;
         let speechlet = graphics::Image::from_path(ctx, "/blue_circle.png")?;
 
-
         let being_instances = graphics::InstanceArray::new(ctx, being);
         let obstruct_instances = graphics::InstanceArray::new(ctx, obstruct);
         let food_instances = graphics::InstanceArray::new(ctx, food);
         let speechlet_instances = graphics::InstanceArray::new(ctx, speechlet);
 
-        
         Ok(MainState {
             being_instances: being_instances,
             obstruct_instances: obstruct_instances,
@@ -730,11 +728,11 @@ impl event::EventHandler<ggez::GameError> for MainState {
                 .set(self.world.beings.iter().map(|(_, b)| {
                     let xy = b.pos;
                     graphics::DrawParam::new()
-                    .dest(xy - Vec2::new(b.radius, b.radius))
-                    .scale(Vec2::new(1., 1.) / 400. * 2. * B_RADIUS)
-                        
-                        // .rotation(b.rotation)
-                        .color(Color::WHITE)
+                        .scale(Vec2::new(1., 1.) / 400. * 2. * B_RADIUS)
+                        .dest(xy)
+                        .offset(Vec2::new(200., 200.))
+                        .rotation(thread_rng().gen_range(-PI..PI))
+
                 }));
 
             self.obstruct_instances
@@ -747,7 +745,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
 
             self.food_instances
                 .set(self.world.foods.iter().map(|(_, f)| {
-                    let xy = f.pos;
+                    let xy = f.pos - Vec2::new(F_RADIUS, F_RADIUS);
                     graphics::DrawParam::new()
                         .dest(xy.clone())
                         .scale(Vec2::new(1., 1.) / 2048. * 2. * F_RADIUS)
@@ -757,17 +755,19 @@ impl event::EventHandler<ggez::GameError> for MainState {
                 .set(self.world.speechlets.iter().map(|(_, s)| {
                     let xy = s.pos;
                     graphics::DrawParam::new()
-                        .dest(xy.clone())
                         .scale(Vec2::new(1., 1.) / 512. * S_RADIUS)
+                        .dest(xy)
+                        .offset(Vec2::new(256., 256.))
                         .rotation(s.rotation)
                 }));
 
+                
             let param = graphics::DrawParam::new();
             canvas.draw(&self.being_instances, param);
             canvas.draw(&self.obstruct_instances, param);
             canvas.draw(&self.food_instances, param);
             canvas.draw(&self.speechlet_instances, param);
-
+            
             canvas.finish(_ctx)
         } else {
             Ok(())
