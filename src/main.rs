@@ -4,16 +4,19 @@ use ggez::conf::WindowSetup;
 use ggez::event;
 use ggez::glam::*;
 use ggez::graphics;
+use ggez::graphics::FillOptions;
+use ggez::graphics::Mesh;
 use ggez::graphics::{Color, Image};
+use ggez::mint::Point2;
 use ggez::{Context, GameResult};
+use image::imageops::resize;
+use image::imageops::FilterType;
+use image::imageops::FilterType::Nearest;
 use image::GenericImage;
 use image::GenericImageView;
 use image::Rgb;
 use image::RgbaImage;
 use image::SubImage;
-use image::imageops::FilterType;
-use image::imageops::FilterType::Nearest;
-use image::imageops::resize;
 use rand::Rng;
 use rand::{
     distributions::{Standard, Uniform},
@@ -50,7 +53,7 @@ mod consts {
     pub const B_SPEED:                                  f32 = 0.01;
     pub const S_SPEED:                                  f32 = 1.;
 
-    pub const B_RADIUS:                                 f32 = 400.;
+    pub const B_RADIUS:                                 f32 = 20.;
     pub const O_RADIUS:                                 f32 = 4.;
     pub const F_RADIUS:                                 f32 = 3.;
     pub const S_RADIUS:                                 f32 = 2.;
@@ -76,7 +79,7 @@ mod consts {
     pub const LOW_ENERGY_SPEED_DAMP_RATE:               f32 = 0.5;                          // beings slow down when their energy runs low
     pub const OFF_DIR_MOVEMENT_SPEED_DAMP_RATE:         f32 = 0.5;                          // beings slow down when not moving face-forward
 
-    pub const N_FOOD_SPAWN_PER_STEP:                  usize = 10; 
+    pub const N_FOOD_SPAWN_PER_STEP:                  usize = 100; 
 
     pub const SPEECHLET_LEN:                          usize = 32;                           // length of the sound vector a being can emit
     pub const B_OUTPUT_LEN:                           usize = 3;                            // f-b, l-r, rotate
@@ -353,6 +356,7 @@ impl World {
                     // TEMP TEMP TEMP TEMP NOTICE TEMP TO BE FIXED
                     let newij = Vec2::new(rng.sample(rdist), rng.sample(rdist));
                     being.pos = newij;
+                    being.rotation = rng.gen_range(-PI..PI);
                 }
             });
         }
@@ -645,11 +649,21 @@ impl MainState {
         let food = graphics::Image::from_path(ctx, "/green_circle.png")?;
         let speechlet = graphics::Image::from_path(ctx, "/blue_circle.png")?;
 
-        let being_instances = graphics::InstanceArray::new(ctx, being);
+        let circle_mesh = Mesh::new_circle(
+            &ctx.gfx,
+            graphics::DrawMode::Fill(FillOptions::DEFAULT),
+            Vec2::new(0., 0.),
+            B_RADIUS,
+            0.1,
+            Color::WHITE,
+        );
+
+        let being_instances = graphics::MeshBuilder::new();
         let obstruct_instances = graphics::InstanceArray::new(ctx, obstruct);
         let food_instances = graphics::InstanceArray::new(ctx, food);
         let speechlet_instances = graphics::InstanceArray::new(ctx, speechlet);
 
+        
         Ok(MainState {
             being_instances: being_instances,
             obstruct_instances: obstruct_instances,
@@ -663,23 +677,32 @@ impl MainState {
     }
 }
 
-pub fn get_fovs(frame: Vec<u8>, beings: &SlotMap<DefaultKey, Being>) -> Vec<ImageBuffer <Rgba<u8>, Vec<u8>>> {
+pub fn get_fovs(
+    frame: Vec<u8>,
+    beings: &SlotMap<DefaultKey, Being>,
+) -> Vec<ImageBuffer<Rgba<u8>, Vec<u8>>> {
+    let frame = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(W_USIZE, W_USIZE, frame).expect("");
 
-    let frame =
-        ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(W_USIZE, W_USIZE, frame).expect("");
+    beings
+        .iter()
+        .map(|(_, b)| {
+            let (x, y) = (b.pos[0] as u32, b.pos[1] as u32);
 
-    beings.iter().map(|(_, b)| {
-        let (x, y) = (b.pos[0] as u32, b.pos[1] as u32);
+            let a = frame
+                .view(x - B_FOV / 2 as u32, y - B_FOV / 2, B_FOV, B_FOV)
+                .to_image()
+                .clone();
+            // let a = resize(&a, 16, 16, Nearest);
 
-        let a = frame.view(x - B_FOV / 2 as u32, y - B_FOV / 2, B_FOV, B_FOV).to_image().clone();
-        // let a = resize(&a, 16, 16, Nearest);
-
-        let _ = a.save_with_format(PathBuf::from(format!("visions/{}.png", b.id),), image::ImageFormat::Png);
-        a
-        // let e = resize(&a
+            let _ = a.save_with_format(
+                PathBuf::from(format!("visions/{}.png", b.id)),
+                image::ImageFormat::Png,
+            );
+            a
+            // let e = resize(&a
             // .to_image(), 12, 12, image::imageops::FilterType::Nearest).save_with_format(Path::new("abcd.png"), image::ImageFormat::Png);
-    }).collect()
-
+        })
+        .collect()
 }
 
 impl event::EventHandler<ggez::GameError> for MainState {
@@ -690,9 +713,9 @@ impl event::EventHandler<ggez::GameError> for MainState {
         // forward pass on each being
         // update being actions
 
+        self.world.step(16);
 
         if (self.world.age + 1) % HZ == 0 {
-            
             // let frame = ctx.gfx.frame().to_pixels(&ctx.gfx).unwrap();
             // get_fovs(frame, &self.world.beings);
 
@@ -704,8 +727,6 @@ impl event::EventHandler<ggez::GameError> for MainState {
                 self.world.beings.len()
             );
         }
-        self.world.step(16);
-
 
         Ok(())
     }
@@ -717,9 +738,10 @@ impl event::EventHandler<ggez::GameError> for MainState {
                 .set(self.world.beings.iter().map(|(_, b)| {
                     let xy = b.pos - Vec2::new(b.radius, b.radius);
                     graphics::DrawParam::new()
-                        .dest(xy.clone())
+                        .dest(xy)
                         .scale(Vec2::new(1., 1.) / 400. * 2. * B_RADIUS)
                         .rotation(b.rotation)
+                        .offset(Vec2::new(b.radius, b.radius))
                 }));
 
             self.obstruct_instances
@@ -752,8 +774,6 @@ impl event::EventHandler<ggez::GameError> for MainState {
             canvas.draw(&self.obstruct_instances, param);
             canvas.draw(&self.food_instances, param);
             canvas.draw(&self.speechlet_instances, param);
-            
-            
 
             canvas.finish(_ctx)
         } else {
@@ -772,8 +792,8 @@ pub fn get_world() -> World {
         world.add_being(
             B_RADIUS,
             Vec2::new(W_FLOAT / 2., W_FLOAT / 2.),
-            0.,
-            0.,
+            rng.gen_range(-PI..PI),
+            1.,
             B_START_ENERGY,
         );
     }
