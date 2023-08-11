@@ -41,7 +41,7 @@ mod consts {
     use std::f32::INFINITY;
 
     pub const W_SIZE: usize = 1024;
-    pub const N_CELLS: usize = 1;
+    pub const N_CELLS: usize = 32;
     pub const CELL_SIZE: usize = W_SIZE / N_CELLS;
     pub const W_FLOAT: f32 = W_SIZE as f32;
     pub const W_USIZE: u32 = W_SIZE as u32;
@@ -649,16 +649,8 @@ impl MainState {
         let food = graphics::Image::from_path(ctx, "/green_circle.png")?;
         let speechlet = graphics::Image::from_path(ctx, "/blue_circle.png")?;
 
-        let circle_mesh = Mesh::new_circle(
-            &ctx.gfx,
-            graphics::DrawMode::Fill(FillOptions::DEFAULT),
-            Vec2::new(0., 0.),
-            B_RADIUS,
-            0.1,
-            Color::WHITE,
-        );
 
-        let being_instances = graphics::MeshBuilder::new();
+        let being_instances = graphics::InstanceArray::new(ctx, being);
         let obstruct_instances = graphics::InstanceArray::new(ctx, obstruct);
         let food_instances = graphics::InstanceArray::new(ctx, food);
         let speechlet_instances = graphics::InstanceArray::new(ctx, speechlet);
@@ -736,12 +728,13 @@ impl event::EventHandler<ggez::GameError> for MainState {
             let mut canvas = graphics::Canvas::from_frame(_ctx, Color::BLACK);
             self.being_instances
                 .set(self.world.beings.iter().map(|(_, b)| {
-                    let xy = b.pos - Vec2::new(b.radius, b.radius);
+                    let xy = b.pos;
                     graphics::DrawParam::new()
-                        .dest(xy)
-                        .scale(Vec2::new(1., 1.) / 400. * 2. * B_RADIUS)
-                        .rotation(b.rotation)
-                        .offset(Vec2::new(b.radius, b.radius))
+                    .dest(xy - Vec2::new(b.radius, b.radius))
+                    .scale(Vec2::new(1., 1.) / 400. * 2. * B_RADIUS)
+                        
+                        // .rotation(b.rotation)
+                        .color(Color::WHITE)
                 }));
 
             self.obstruct_instances
