@@ -634,7 +634,8 @@ pub fn get_fovs(
     beings
         .iter()
         .map(|(_, b)| {
-            let (x, y) = (b.pos[0] as u32, b.pos[1] as u32);
+            let xy = b.pos.round();
+            let (x, y) = (xy[0] as u32, xy[1] as u32);
 
             let a = frame
                 .view(x - B_FOV / 2 as u32, y - B_FOV / 2, B_FOV, B_FOV)
@@ -685,7 +686,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
             
             self.being_instances
                 .set(self.world.beings.iter().map(|(_, b)| {
-                    let xy = b.pos;
+                    let xy = b.pos.round();
                     DrawParam::new()
                         .scale(Vec2::new(1., 1.) / 400. * 2. * B_RADIUS)
                         .dest(xy)
@@ -704,7 +705,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
 
             self.food_instances
                 .set(self.world.foods.iter().map(|(_, f)| {
-                    let xy = f.pos - Vec2::new(F_RADIUS, F_RADIUS);
+                    let xy = (f.pos - Vec2::new(F_RADIUS, F_RADIUS)).round();
                     DrawParam::new()
                         .dest(xy.clone())
                         .scale(Vec2::new(1., 1.) / 2048. * 2. * F_RADIUS)
@@ -712,7 +713,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
 
             self.speechlet_instances
                 .set(self.world.speechlets.iter().map(|(_, s)| {
-                    let xy = s.pos;
+                    let xy = s.pos.round();
                     DrawParam::new()
                         .scale(Vec2::new(1., 1.) / 512. * S_RADIUS)
                         .dest(xy)
@@ -720,32 +721,6 @@ impl event::EventHandler<ggez::GameError> for MainState {
                         .rotation(s.rotation)
                 }));
             
-
-            //     let mesh = graphics::Mesh::from_data(
-            //         _ctx,
-            //         graphics::MeshBuilder::new()
-            //             .circle(
-            //                 graphics::DrawMode::stroke(4.0),
-            //                 Vec2::new(0.0, 0.0),
-            //                 2.0,
-            //                 1e-10,
-            //                 (255, 255, 255).into(),
-            //             )?
-            //             .build(),
-            //     );
-
-            // let mut rng = thread_rng();
-            // let mut mesh_batch = InstanceArray::new(_ctx, None);
-
-            // mesh_batch.set((0..500).map(|_| {
-    
-            //         DrawParam::new()
-            //             .dest(Vec2::new(rng.gen_range(10.0..900.), rng.gen_range(10.0..900.)))
-            // }));
-
-            // canvas.draw_instanced_mesh(mesh, &mesh_batch, DrawParam::new());
-
-
             let param = DrawParam::new();
             canvas.draw(&self.being_instances, param);
             canvas.draw(&self.obstruct_instances, param);
