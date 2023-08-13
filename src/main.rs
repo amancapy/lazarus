@@ -1,5 +1,5 @@
-use ggez::{conf::{NumSamples, WindowMode, WindowSetup}, graphics::{Color, Image, InstanceArray, DrawParam, Canvas, self, MeshBuilder, Mesh, Sampler}, event, glam::*, Context, GameResult,};
-use image::{ImageBuffer, Rgba,GenericImageView};
+use ggez::{conf::{NumSamples, WindowMode, WindowSetup}, graphics::{Color, Image, InstanceArray, DrawParam, Canvas, MeshBuilder, Mesh, Sampler}, event, glam::*, Context, GameResult,};
+use image::{ImageBuffer, Rgba,GenericImageView, imageops::{resize, FilterType::Triangle}};
 use rand::{Rng, thread_rng};
 use slotmap::{SlotMap, DefaultKey};
 use std::{env, f32::consts::PI, path::PathBuf};
@@ -9,28 +9,29 @@ use std::{env, f32::consts::PI, path::PathBuf};
 
 #[rustfmt::skip]
 mod consts {
+    use std::f32::INFINITY;
 
-    pub const W_SIZE: usize = 768;
-    pub const N_CELLS: usize = 128;
+    pub const W_SIZE: usize = 512;
+    pub const N_CELLS: usize = 256;
     pub const CELL_SIZE: usize = W_SIZE / N_CELLS;
     pub const W_FLOAT: f32 = W_SIZE as f32;
     pub const W_USIZE: u32 = W_SIZE as u32;
-    pub const HZ: usize = 60;
     pub const B_FOV: u32 = 32;
+    pub const B_FLOAT: f32 = (B_FOV + 1) as f32;
 
-    pub const VISION_SAMPLE_MULTIPLE: usize = 3;
+    pub const VISION_SAMPLE_MULTIPLE: usize = 16;
 
-    pub const B_SPEED:                                  f32 = 1.;
+    pub const B_SPEED:                                  f32 = 0.5;
     pub const S_SPEED:                                  f32 = 2.;
 
-    pub const B_RADIUS:                                 f32 = 3.;
-    pub const O_RADIUS:                                 f32 = 1.5;
-    pub const F_RADIUS:                                 f32 = 1.;
+    pub const B_RADIUS:                                 f32 = 1.5;
+    pub const O_RADIUS:                                 f32 = 1.25;
+    pub const F_RADIUS:                                 f32 = 0.75;
     pub const S_RADIUS:                                 f32 = 0.5;
 
     pub const BASE_ANG_SPEED_DEGREES:                   f32 = 10.;
 
-    pub const B_START_ENERGY:                           f32 = 10.;
+    pub const B_START_ENERGY:                           f32 = INFINITY;
     pub const O_START_HEALTH:                           f32 = 5.;
     pub const F_START_AGE:                              f32 = 2.;
     pub const S_START_AGE:                              f32 = 3.;
@@ -80,19 +81,19 @@ pub fn pos_to_cell(pos: Vec2) -> (usize, usize) {
 }
 
 pub fn lef_border_trespass(i: f32, r: f32) -> bool {
-    i - r <= 1.
+    i - r <= B_FLOAT
 }
 
 pub fn rig_border_trespass(i: f32, r: f32) -> bool {
-    i + r >= W_FLOAT - 1.
+    i + r >= W_FLOAT - B_FLOAT
 }
 
 pub fn top_border_trespass(j: f32, r: f32) -> bool {
-    j - r <= 1.
+    j - r <= B_FLOAT
 }
 
 pub fn bot_border_trespass(j: f32, r: f32) -> bool {
-    j + r >= W_FLOAT - 1.
+    j + r >= W_FLOAT - B_FLOAT
 }
 
 // out of bounds
@@ -226,7 +227,7 @@ impl World {
         }
     }
 
-    pub fn add_being(&mut self, radius: f32, pos: Vec2, rotation: f32, speed: f32, health: f32) {
+    pub fn add_being(&mut self, radius: f32, pos: Vec2, rotation: f32, health: f32) {
         let (i, j) = pos_to_cell(pos);
 
         let being = Being {
@@ -569,7 +570,6 @@ impl World {
         }
     }
 
-    // self-explanatory
     pub fn step(&mut self, substeps: usize) {
         for _ in 0..substeps {
             self.move_beings(substeps);
@@ -595,8 +595,6 @@ struct MainState {
     speechlet_instances: InstanceArray,
     world: World,
     step: usize,
-
-    frame_buffer: Vec<Image>,
 }
 
 impl MainState {
@@ -619,8 +617,6 @@ impl MainState {
             speechlet_instances: speechlet_instances,
             world: w,
             step: 0,
-
-            frame_buffer: vec![],
         })
     }
 }
@@ -638,24 +634,12 @@ pub fn get_fovs(
             let (x, y) = (xy[0] as u32, xy[1] as u32);
 
             let a = frame
-                .view(x - B_FOV / 2 as u32, y - B_FOV / 2, B_FOV, B_FOV)
+                .view(x - B_FOV as u32, y - B_FOV, 2 * B_FOV - 1, 2 * B_FOV + 1)
                 .to_image()
                 .clone();
 
-                let _ = a.save_with_format(
-                    PathBuf::from(format!("visions/{}_ori.png", b.id)),
-                    image::ImageFormat::Png,
-                );
+            resize(&a, 17, 17, Triangle)
 
-            let a = image::imageops::resize(&a, 16, 16, image::imageops::Nearest);
-
-            let _ = a.save_with_format(
-                PathBuf::from(format!("visions/{}.png", b.id)),
-                image::ImageFormat::Png,
-            );
-            a
-            // let e = resize(&a
-            // .to_image(), 12, 12, image::imageops::FilterType::Nearest).save_with_format(Path::new("abcd.png"), image::ImageFormat::Png);
         })
         .collect()
 }
@@ -663,32 +647,30 @@ pub fn get_fovs(
 impl event::EventHandler<ggez::GameError> for MainState {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
         self.step += 1;
-        // get frame buffer
-        // subimage the frame for each being
-        // forward pass on each being
-        // update being actions
 
 
-        if (self.world.age + 1) % HZ == 0 {
+
+
+        if self.step % VISION_SAMPLE_MULTIPLE == 0 {
             let frame = ctx.gfx.frame().to_pixels(&ctx.gfx).unwrap();
-            get_fovs(frame, &self.world.beings);
+            let fovs = get_fovs(frame, &self.world.beings);
 
+            // forward pass on each being
+            // update being actions
             println!(
-                "timestep: {}, fps: {}, frames: {}, being_count: {}",
+                "timestep: {}, fps: {}",
                 self.world.age,
                 ctx.time.fps(),
-                self.frame_buffer.len(),
-                self.world.beings.len()
             );
         }
-        self.world.step(1);
 
+        self.world.step(1);
         Ok(())
     }
 
-    fn draw(&mut self, _ctx: &mut Context) -> Result<(), ggez::GameError> {
+    fn draw(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
         if self.step % VISION_SAMPLE_MULTIPLE == 0 {
-            let mut canvas = Canvas::from_frame(_ctx, Color::BLACK);
+            let mut canvas = Canvas::from_frame(ctx, Color::BLACK);
             
             self.being_instances
                 .set(self.world.beings.iter().map(|(_, b)| {
@@ -699,7 +681,8 @@ impl event::EventHandler<ggez::GameError> for MainState {
                         .offset(Vec2::new(200., 200.))
                         .rotation(thread_rng().gen_range(-PI..PI))
 
-                }));
+                })
+            );
 
             self.obstruct_instances
                 .set(self.world.obstructs.iter().map(|(_, o)| {
@@ -715,7 +698,8 @@ impl event::EventHandler<ggez::GameError> for MainState {
                     DrawParam::new()
                         .dest(xy.clone())
                         .scale(Vec2::new(1., 1.) / 2048. * 2. * F_RADIUS)
-                }));
+                })
+            );
 
             self.speechlet_instances
                 .set(self.world.speechlets.iter().map(|(_, s)| {
@@ -725,15 +709,19 @@ impl event::EventHandler<ggez::GameError> for MainState {
                         .dest(xy)
                         .offset(Vec2::new(256., 256.))
                         .rotation(s.rotation)
-                }));
-            
+                })
+            );
+
             let param = DrawParam::new();
             canvas.draw(&self.being_instances, param);
             canvas.draw(&self.obstruct_instances, param);
             canvas.draw(&self.food_instances, param);
             canvas.draw(&self.speechlet_instances, param);
+
+            let a = canvas.finish(ctx);
+        
             
-            canvas.finish(_ctx)
+            a
         } else {
             Ok(())
         }
@@ -745,12 +733,11 @@ pub fn get_world() -> World {
     let mut world = World::new();
     let mut rng = thread_rng();
 
-    for i in 0..500 {
+    for i in 0..200 {
         world.add_being(
             B_RADIUS,
-            Vec2::new(rng.gen_range(1.0..W_FLOAT), rng.gen_range(1.0..W_FLOAT)),
+            Vec2::new(rng.gen_range(B_FLOAT..W_FLOAT - B_FLOAT), rng.gen_range(B_FLOAT..W_FLOAT - B_FLOAT)),
             rng.gen_range(-PI..PI),
-            B_SPEED,
             B_START_ENERGY,
         );
     }
@@ -804,7 +791,7 @@ pub fn gauge() {
     let mut w = get_world();
     loop {
         w.step(1);
-        if w.age % HZ == 0 {
+        if w.age % 60 == 0 {
             println!("{}", w.age);
             dbg!(w.beings.len());
         }
