@@ -16,7 +16,7 @@ mod consts {
     pub const W_FLOAT: f32 = W_SIZE as f32;
     pub const W_USIZE: u32 = W_SIZE as u32;
     pub const HZ: usize = 60;
-    pub const B_FOV: u32 = 100;
+    pub const B_FOV: u32 = 32;
 
     pub const VISION_SAMPLE_MULTIPLE: usize = 3;
 
@@ -641,7 +641,13 @@ pub fn get_fovs(
                 .view(x - B_FOV / 2 as u32, y - B_FOV / 2, B_FOV, B_FOV)
                 .to_image()
                 .clone();
-            // let a = resize(&a, 16, 16, Nearest);
+
+                let _ = a.save_with_format(
+                    PathBuf::from(format!("visions/{}_ori.png", b.id)),
+                    image::ImageFormat::Png,
+                );
+
+            let a = image::imageops::resize(&a, 16, 16, image::imageops::Nearest);
 
             let _ = a.save_with_format(
                 PathBuf::from(format!("visions/{}.png", b.id)),
