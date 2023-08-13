@@ -1,4 +1,4 @@
-use ggez::{conf::{NumSamples, WindowMode, WindowSetup}, graphics::{Color, Image, InstanceArray, DrawParam, Canvas}, event, glam::*, Context, GameResult,};
+use ggez::{conf::{NumSamples, WindowMode, WindowSetup}, graphics::{Color, Image, InstanceArray, DrawParam, Canvas, self, MeshBuilder, Mesh, Sampler}, event, glam::*, Context, GameResult,};
 use image::{ImageBuffer, Rgba,GenericImageView};
 use rand::{Rng, thread_rng};
 use slotmap::{SlotMap, DefaultKey};
@@ -606,6 +606,7 @@ impl MainState {
         let food = Image::from_path(ctx, "/green_circle.png")?;
         let speechlet = Image::from_path(ctx, "/blue_circle.png")?;
 
+
         let being_instances = InstanceArray::new(ctx, being);
         let obstruct_instances = InstanceArray::new(ctx, obstruct);
         let food_instances = InstanceArray::new(ctx, food);
@@ -661,7 +662,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
         // update being actions
 
 
-        if self.world.age % HZ == 0 {
+        if (self.world.age + 1) % HZ == 0 {
             let frame = ctx.gfx.frame().to_pixels(&ctx.gfx).unwrap();
             get_fovs(frame, &self.world.beings);
 
@@ -681,6 +682,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
     fn draw(&mut self, _ctx: &mut Context) -> Result<(), ggez::GameError> {
         if self.step % VISION_SAMPLE_MULTIPLE == 0 {
             let mut canvas = Canvas::from_frame(_ctx, Color::BLACK);
+            
             self.being_instances
                 .set(self.world.beings.iter().map(|(_, b)| {
                     let xy = b.pos;
@@ -717,8 +719,33 @@ impl event::EventHandler<ggez::GameError> for MainState {
                         .offset(Vec2::new(256., 256.))
                         .rotation(s.rotation)
                 }));
+            
 
-                
+            //     let mesh = graphics::Mesh::from_data(
+            //         _ctx,
+            //         graphics::MeshBuilder::new()
+            //             .circle(
+            //                 graphics::DrawMode::stroke(4.0),
+            //                 Vec2::new(0.0, 0.0),
+            //                 2.0,
+            //                 1e-10,
+            //                 (255, 255, 255).into(),
+            //             )?
+            //             .build(),
+            //     );
+
+            // let mut rng = thread_rng();
+            // let mut mesh_batch = InstanceArray::new(_ctx, None);
+
+            // mesh_batch.set((0..500).map(|_| {
+    
+            //         DrawParam::new()
+            //             .dest(Vec2::new(rng.gen_range(10.0..900.), rng.gen_range(10.0..900.)))
+            // }));
+
+            // canvas.draw_instanced_mesh(mesh, &mesh_batch, DrawParam::new());
+
+
             let param = DrawParam::new();
             canvas.draw(&self.being_instances, param);
             canvas.draw(&self.obstruct_instances, param);
