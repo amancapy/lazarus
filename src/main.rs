@@ -141,7 +141,6 @@ pub struct Being {
     rotation: f32,
     energy: f32,
 
-    speed: f32, // to be deprecated
     cell: (usize, usize),
     id: usize, // vestigial, may stick around
     inputs: Vec<[f32; SPEECHLET_LEN]>,
@@ -236,7 +235,6 @@ impl World {
             rotation: rotation,
 
             energy: health,
-            speed: speed,
             cell: (i, j),
             id: self.being_id,
             inputs: vec![],
@@ -310,12 +308,10 @@ impl World {
     pub fn move_beings(&mut self, substeps: usize) {
         let s = substeps as f32;
 
-        let mut rng = thread_rng();
-
         for _ in 0..substeps {
             let w = W_SIZE as f32;
             self.beings.iter_mut().for_each(|(k, being)| {
-                let move_vec = dir_from_theta(being.rotation) * (being.speed / s); // this part to be redone based on being outputs
+                let move_vec = dir_from_theta(being.rotation) * (B_SPEED / s); // this part to be redone based on being outputs
                 let newij = being.pos + move_vec;
 
                 if !oob(newij, being.radius) {
@@ -337,12 +333,12 @@ impl World {
             if !oob(newij, S_RADIUS) {
                 s.pos_update = move_vec;
             } else {
-                // TODO: KILL
+                self.speechlet_deaths.push((k, s.pos));
             }
         })
     }
 
-    pub fn check_collisions(&mut self, timestep: usize, substeps: usize) {
+    pub fn check_collisions(&mut self, substeps: usize) {
         let w = N_CELLS as isize;
         let s = substeps as f32;
 
@@ -577,7 +573,7 @@ impl World {
     pub fn step(&mut self, substeps: usize) {
         for _ in 0..substeps {
             self.move_beings(substeps);
-            self.check_collisions(self.age, substeps);
+            self.check_collisions(substeps);
             self.update_cells();
         }
 
@@ -592,7 +588,6 @@ impl World {
     }
 }
 
-// a BUNCH of rendering boilerplate, will switch to Bevy rendering soon. wip.
 struct MainState {
     being_instances: InstanceArray,
     obstruct_instances: InstanceArray,
@@ -665,7 +660,6 @@ impl event::EventHandler<ggez::GameError> for MainState {
         // forward pass on each being
         // update being actions
 
-        self.world.step(1);
 
         if self.world.age % HZ == 0 {
             let frame = ctx.gfx.frame().to_pixels(&ctx.gfx).unwrap();
@@ -679,6 +673,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                 self.world.beings.len()
             );
         }
+        self.world.step(1);
 
         Ok(())
     }
