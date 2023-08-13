@@ -152,7 +152,6 @@ pub struct Being {
 }
 
 pub struct Obstruct {
-    // radius: f32, deprecated
     pos: Vec2,
     age: f32,
     id: usize,
@@ -322,10 +321,7 @@ impl World {
                 if !oob(newij, being.radius) {
                     being.pos_update = move_vec;
                 } else {
-                    // TEMP TEMP TEMP TEMP NOTICE TEMP TO BE FIXED
-                    let newij = Vec2::new(rng.gen_range(1.0..W_FLOAT - 1.), rng.gen_range(1.0..W_FLOAT - 1.));
-                    being.pos = newij;
-                    being.rotation = rng.gen_range(-PI..PI);
+                    being.energy_update -= HEADON_B_HITS_O_DAMAGE;
                 }
             });
         }
