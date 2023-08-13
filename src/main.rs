@@ -1,5 +1,5 @@
 use ggez::{conf::{NumSamples, WindowMode, WindowSetup}, graphics::{Color, Image, InstanceArray, DrawParam, Canvas, MeshBuilder, Mesh, Sampler}, event, glam::*, Context, GameResult,};
-use image::{ImageBuffer, Rgba,GenericImageView, imageops::{resize, FilterType::Triangle}};
+use image::{ImageBuffer, Rgba,GenericImageView, imageops::{resize, FilterType::*}};
 use rand::{Rng, thread_rng};
 use slotmap::{SlotMap, DefaultKey};
 use std::{env, f32::consts::PI, path::PathBuf};
@@ -310,7 +310,6 @@ impl World {
         let s = substeps as f32;
 
         for _ in 0..substeps {
-            let w = W_SIZE as f32;
             self.beings.iter_mut().for_each(|(k, being)| {
                 let move_vec = dir_from_theta(being.rotation) * (B_SPEED / s); // this part to be redone based on being outputs
                 let newij = being.pos + move_vec;
@@ -318,7 +317,7 @@ impl World {
                 if !oob(newij, being.radius) {
                     being.pos_update = move_vec;
                 } else {
-                    being.energy_update -= HEADON_B_HITS_O_DAMAGE;
+                    being.energy_update -= HEADON_B_HITS_O_DAMAGE / s / 10.;
                 }
             });
         }
@@ -638,7 +637,7 @@ pub fn get_fovs(
                 .to_image()
                 .clone();
 
-            resize(&a, 17, 17, Triangle)
+            resize(&a, 13, 13, Gaussian)
 
         })
         .collect()
