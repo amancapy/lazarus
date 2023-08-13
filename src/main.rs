@@ -1,66 +1,36 @@
-use ggez::conf::NumSamples;
-use ggez::conf::WindowMode;
-use ggez::conf::WindowSetup;
-use ggez::event;
-use ggez::glam::*;
-use ggez::graphics;
-use ggez::graphics::FillOptions;
-use ggez::graphics::Mesh;
-use ggez::graphics::{Color, Image};
-use ggez::mint::Point2;
-use ggez::{Context, GameResult};
-use image::imageops::resize;
-use image::imageops::FilterType;
-use image::imageops::FilterType::Nearest;
-use image::GenericImage;
-use image::GenericImageView;
-use image::Rgb;
-use image::RgbaImage;
-use image::SubImage;
-use rand::Rng;
-use rand::{
-    distributions::{Standard, Uniform},
-    thread_rng,
-};
-use slotmap::DefaultKey;
-use slotmap::SlotMap;
-use std::env;
-use std::f32::consts::PI;
-use std::path;
-use std::path::PathBuf;
-
-use image::{ImageBuffer, ImageOutputFormat, Rgba};
-use std::fs::File;
-use std::path::Path;
+use ggez::{conf::{NumSamples, WindowMode, WindowSetup}, graphics::{Color, Image, InstanceArray, DrawParam, Canvas}, event, glam::*, Context, GameResult,};
+use image::{ImageBuffer, Rgba,GenericImageView};
+use rand::{Rng, thread_rng};
+use slotmap::{SlotMap, DefaultKey};
+use std::{env, f32::consts::PI, path::PathBuf};
 
 // use anyhow::Result;
 // use tch::{nn, nn::ModuleT, nn::OptimizerConfig, Device, Tensor, Kind};
 
 #[rustfmt::skip]
 mod consts {
-    use std::f32::INFINITY;
 
-    pub const W_SIZE: usize = 1024;
-    pub const N_CELLS: usize = 32;
+    pub const W_SIZE: usize = 768;
+    pub const N_CELLS: usize = 128;
     pub const CELL_SIZE: usize = W_SIZE / N_CELLS;
     pub const W_FLOAT: f32 = W_SIZE as f32;
     pub const W_USIZE: u32 = W_SIZE as u32;
     pub const HZ: usize = 60;
     pub const B_FOV: u32 = 100;
 
-    pub const VISION_SAMPLE_MULTIPLE: usize = 4;
+    pub const VISION_SAMPLE_MULTIPLE: usize = 3;
 
-    pub const B_SPEED:                                  f32 = 0.01;
-    pub const S_SPEED:                                  f32 = 1.;
+    pub const B_SPEED:                                  f32 = 1.;
+    pub const S_SPEED:                                  f32 = 2.;
 
-    pub const B_RADIUS:                                 f32 = 20.;
-    pub const O_RADIUS:                                 f32 = 4.;
-    pub const F_RADIUS:                                 f32 = 3.;
-    pub const S_RADIUS:                                 f32 = 2.;
+    pub const B_RADIUS:                                 f32 = 3.;
+    pub const O_RADIUS:                                 f32 = 1.5;
+    pub const F_RADIUS:                                 f32 = 1.;
+    pub const S_RADIUS:                                 f32 = 0.5;
 
     pub const BASE_ANG_SPEED_DEGREES:                   f32 = 10.;
 
-    pub const B_START_ENERGY:                           f32 = INFINITY;
+    pub const B_START_ENERGY:                           f32 = 10.;
     pub const O_START_HEALTH:                           f32 = 5.;
     pub const F_START_AGE:                              f32 = 2.;
     pub const S_START_AGE:                              f32 = 3.;
@@ -79,7 +49,7 @@ mod consts {
     pub const LOW_ENERGY_SPEED_DAMP_RATE:               f32 = 0.5;                          // beings slow down when their energy runs low
     pub const OFF_DIR_MOVEMENT_SPEED_DAMP_RATE:         f32 = 0.5;                          // beings slow down when not moving face-forward
 
-    pub const N_FOOD_SPAWN_PER_STEP:                  usize = 100; 
+    pub const N_FOOD_SPAWN_PER_STEP:                  usize = 2; 
 
     pub const SPEECHLET_LEN:                          usize = 32;                           // length of the sound vector a being can emit
     pub const B_OUTPUT_LEN:                           usize = 3;                            // f-b, l-r, rotate
@@ -341,7 +311,6 @@ impl World {
     pub fn move_beings(&mut self, substeps: usize) {
         let s = substeps as f32;
 
-        let rdist = Uniform::new(1., (W_SIZE as f32) - 1.);
         let mut rng = thread_rng();
 
         for _ in 0..substeps {
@@ -354,7 +323,7 @@ impl World {
                     being.pos_update = move_vec;
                 } else {
                     // TEMP TEMP TEMP TEMP NOTICE TEMP TO BE FIXED
-                    let newij = Vec2::new(rng.sample(rdist), rng.sample(rdist));
+                    let newij = Vec2::new(rng.gen_range(1.0..W_FLOAT - 1.), rng.gen_range(1.0..W_FLOAT - 1.));
                     being.pos = newij;
                     being.rotation = rng.gen_range(-PI..PI);
                 }
@@ -367,15 +336,12 @@ impl World {
             let move_vec = dir_from_theta(s.rotation) * S_SPEED;
             let newij = s.pos + move_vec;
 
-            let rdist = Uniform::new(1., (W_SIZE as f32) - 1.);
             let mut rng = thread_rng();
 
             if !oob(newij, S_RADIUS) {
                 s.pos_update = move_vec;
             } else {
-                // TEMP TEMP TEMP TEMP NOTICE TEMP TO BE FIXED
-                let newij = Vec2::new(rng.sample(rdist), rng.sample(rdist));
-                s.pos = newij;
+                // TODO: KILL
             }
         })
     }
@@ -632,10 +598,10 @@ impl World {
 
 // a BUNCH of rendering boilerplate, will switch to Bevy rendering soon. wip.
 struct MainState {
-    being_instances: graphics::InstanceArray,
-    obstruct_instances: graphics::InstanceArray,
-    food_instances: graphics::InstanceArray,
-    speechlet_instances: graphics::InstanceArray,
+    being_instances: InstanceArray,
+    obstruct_instances: InstanceArray,
+    food_instances: InstanceArray,
+    speechlet_instances: InstanceArray,
     world: World,
     step: usize,
 
@@ -644,15 +610,15 @@ struct MainState {
 
 impl MainState {
     fn new(ctx: &mut Context, w: World) -> GameResult<MainState> {
-        let being = graphics::Image::from_path(ctx, "/red_circle.png")?;
-        let obstruct = graphics::Image::from_path(ctx, "/white_circle.png")?;
-        let food = graphics::Image::from_path(ctx, "/green_circle.png")?;
-        let speechlet = graphics::Image::from_path(ctx, "/blue_circle.png")?;
+        let being = Image::from_path(ctx, "/red_circle.png")?;
+        let obstruct = Image::from_path(ctx, "/white_circle.png")?;
+        let food = Image::from_path(ctx, "/green_circle.png")?;
+        let speechlet = Image::from_path(ctx, "/blue_circle.png")?;
 
-        let being_instances = graphics::InstanceArray::new(ctx, being);
-        let obstruct_instances = graphics::InstanceArray::new(ctx, obstruct);
-        let food_instances = graphics::InstanceArray::new(ctx, food);
-        let speechlet_instances = graphics::InstanceArray::new(ctx, speechlet);
+        let being_instances = InstanceArray::new(ctx, being);
+        let obstruct_instances = InstanceArray::new(ctx, obstruct);
+        let food_instances = InstanceArray::new(ctx, food);
+        let speechlet_instances = InstanceArray::new(ctx, speechlet);
 
         Ok(MainState {
             being_instances: being_instances,
@@ -703,11 +669,11 @@ impl event::EventHandler<ggez::GameError> for MainState {
         // forward pass on each being
         // update being actions
 
-        self.world.step(16);
+        self.world.step(1);
 
-        if (self.world.age + 1) % HZ == 0 {
-            // let frame = ctx.gfx.frame().to_pixels(&ctx.gfx).unwrap();
-            // get_fovs(frame, &self.world.beings);
+        if self.world.age % HZ == 0 {
+            let frame = ctx.gfx.frame().to_pixels(&ctx.gfx).unwrap();
+            get_fovs(frame, &self.world.beings);
 
             println!(
                 "timestep: {}, fps: {}, frames: {}, being_count: {}",
@@ -723,11 +689,11 @@ impl event::EventHandler<ggez::GameError> for MainState {
 
     fn draw(&mut self, _ctx: &mut Context) -> Result<(), ggez::GameError> {
         if self.step % VISION_SAMPLE_MULTIPLE == 0 {
-            let mut canvas = graphics::Canvas::from_frame(_ctx, Color::BLACK);
+            let mut canvas = Canvas::from_frame(_ctx, Color::BLACK);
             self.being_instances
                 .set(self.world.beings.iter().map(|(_, b)| {
                     let xy = b.pos;
-                    graphics::DrawParam::new()
+                    DrawParam::new()
                         .scale(Vec2::new(1., 1.) / 400. * 2. * B_RADIUS)
                         .dest(xy)
                         .offset(Vec2::new(200., 200.))
@@ -738,7 +704,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
             self.obstruct_instances
                 .set(self.world.obstructs.iter().map(|(_, o)| {
                     let xy = o.pos;
-                    graphics::DrawParam::new()
+                    DrawParam::new()
                         .dest(xy.clone())
                         .scale(Vec2::new(1., 1.) / 800. * 2. * O_RADIUS)
                 }));
@@ -746,7 +712,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
             self.food_instances
                 .set(self.world.foods.iter().map(|(_, f)| {
                     let xy = f.pos - Vec2::new(F_RADIUS, F_RADIUS);
-                    graphics::DrawParam::new()
+                    DrawParam::new()
                         .dest(xy.clone())
                         .scale(Vec2::new(1., 1.) / 2048. * 2. * F_RADIUS)
                 }));
@@ -754,7 +720,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
             self.speechlet_instances
                 .set(self.world.speechlets.iter().map(|(_, s)| {
                     let xy = s.pos;
-                    graphics::DrawParam::new()
+                    DrawParam::new()
                         .scale(Vec2::new(1., 1.) / 512. * S_RADIUS)
                         .dest(xy)
                         .offset(Vec2::new(256., 256.))
@@ -762,7 +728,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                 }));
 
                 
-            let param = graphics::DrawParam::new();
+            let param = DrawParam::new();
             canvas.draw(&self.being_instances, param);
             canvas.draw(&self.obstruct_instances, param);
             canvas.draw(&self.food_instances, param);
@@ -778,25 +744,24 @@ impl event::EventHandler<ggez::GameError> for MainState {
 // a world populated as intended, this fn mainly to relieve World::new() of some clutter
 pub fn get_world() -> World {
     let mut world = World::new();
-    let rdist = Uniform::new(1., (W_SIZE as f32) - 1.);
     let mut rng = thread_rng();
 
-    for i in 0..1 {
+    for i in 0..500 {
         world.add_being(
             B_RADIUS,
-            Vec2::new(W_FLOAT / 2., W_FLOAT / 2.),
+            Vec2::new(rng.gen_range(1.0..W_FLOAT), rng.gen_range(1.0..W_FLOAT)),
             rng.gen_range(-PI..PI),
-            1.,
+            B_SPEED,
             B_START_ENERGY,
         );
     }
 
     for i in 0..0 {
-        world.add_obstruct(Vec2::new(rng.sample(rdist), rng.sample(rdist)));
+        world.add_obstruct(Vec2::new(rng.gen_range(1.0..W_FLOAT-1.), rng.gen_range(1.0..W_FLOAT-1.)));
     }
 
     for i in 0..2000 {
-        world.add_food(Vec2::new(rng.sample(rdist), rng.sample(rdist)))
+        world.add_food(Vec2::new(rng.gen_range(1.0..W_FLOAT-1.), rng.gen_range(1.0..W_FLOAT-1.)))
     }
 
     world
@@ -806,11 +771,11 @@ pub fn run() -> GameResult {
     let world = get_world();
 
     let resource_dir = if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
-        let mut path = path::PathBuf::from(manifest_dir);
+        let mut path = PathBuf::from(manifest_dir);
         path.push("resources");
         path
     } else {
-        path::PathBuf::from("./resources")
+        PathBuf::from("./resources")
     };
 
     let cb = ggez::ContextBuilder::new("spritebatch", "ggez")
@@ -823,7 +788,7 @@ pub fn run() -> GameResult {
         })
         .window_setup(WindowSetup {
             title: String::from("langlands"),
-            vsync: true,
+            vsync: false,
             samples: NumSamples::One,
             srgb: false,
             ..Default::default()
