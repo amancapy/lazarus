@@ -12,19 +12,19 @@ mod consts {
     use std::f32::INFINITY;
 
     pub const W_SIZE: usize = 1000;
-    pub const N_CELLS: usize = 200;
+    pub const N_CELLS: usize = 250;
     pub const CELL_SIZE: usize = W_SIZE / N_CELLS;
     pub const W_FLOAT: f32 = W_SIZE as f32;
     pub const W_USIZE: u32 = W_SIZE as u32;
     pub const B_FOV: u32 = 32;
     pub const B_FLOAT: f32 = (B_FOV + 1) as f32;
 
-    pub const VISION_SAMPLE_MULTIPLE: usize = 16;
+    pub const VISION_SAMPLE_MULTIPLE: usize = 1;
 
-    pub const B_SPEED:                                  f32 = 4.;
+    pub const B_SPEED:                                  f32 = 1.;
     pub const S_SPEED:                                  f32 = 2.;
 
-    pub const B_RADIUS:                                 f32 = 1.5;
+    pub const B_RADIUS:                                 f32 = 1.;
     pub const O_RADIUS:                                 f32 = 1.25;
     pub const F_RADIUS:                                 f32 = 0.75;
     pub const S_RADIUS:                                 f32 = 0.5;
@@ -45,7 +45,7 @@ mod consts {
     pub const B_HEADON_DAMAGE:                          f32 = 0.25;
     pub const B_REAR_DAMAGE:                            f32 = 1.;
     pub const HEADON_B_HITS_O_DAMAGE:                   f32 = 0.1;
-    pub const SPAWN_O_COST:                             f32 = 1.;                           // cost for a being to spawn an obstruct at their rear
+    pub const SPAWN_O_COST:                             f32 = 1.;                           // cost for a being to spawn an obstruct at their mouth
 
     pub const LOW_ENERGY_SPEED_DAMP_RATE:               f32 = 0.5;                          // beings slow down when their energy runs low
     pub const OFF_DIR_MOVEMENT_SPEED_DAMP_RATE:         f32 = 0.5;                          // beings slow down when not moving face-forward
@@ -64,7 +64,7 @@ fn two_to_one((i, j): (usize, usize)) -> usize {
 }
 
 fn dir_from_theta(theta: f32) -> Vec2 {
-    Vec2::new(theta.cos(), theta.sin())
+    Vec2::from_angle(theta)
 }
 
 fn same_partition_index((a, b): (usize, usize), (c, d): (usize, usize)) -> bool {
@@ -81,19 +81,19 @@ pub fn pos_to_cell(pos: Vec2) -> (usize, usize) {
 }
 
 pub fn lef_border_trespass(i: f32, r: f32) -> bool {
-    i - r <= B_FLOAT
+    i - r <= 1.
 }
 
 pub fn rig_border_trespass(i: f32, r: f32) -> bool {
-    i + r >= W_FLOAT - B_FLOAT
+    i + r >= W_FLOAT - 1.
 }
 
 pub fn top_border_trespass(j: f32, r: f32) -> bool {
-    j - r <= B_FLOAT
+    j - r <= 1.
 }
 
 pub fn bot_border_trespass(j: f32, r: f32) -> bool {
-    j + r >= W_FLOAT - B_FLOAT
+    j + r >= W_FLOAT - 1.
 }
 
 // out of bounds
@@ -227,6 +227,31 @@ impl World {
         }
     }
 
+    // a world populated as intended, this fn mainly to relieve World::new() of some clutter
+pub fn standard_world() -> Self {
+    let mut world = World::new();
+    let mut rng = thread_rng();
+
+    for i in 0..500 {
+        world.add_being(
+            B_RADIUS,
+            Vec2::new(rng.gen_range(B_FLOAT..W_FLOAT - B_FLOAT), rng.gen_range(B_FLOAT..W_FLOAT - B_FLOAT)),
+            rng.gen_range(-PI..PI),
+            B_START_ENERGY,
+        );
+    }
+
+    for i in 0..1000 {
+        world.add_obstruct(Vec2::new(rng.gen_range(1.0..W_FLOAT-1.), rng.gen_range(1.0..W_FLOAT-1.)));
+    }
+
+    for i in 0..2000 {
+        world.add_food(Vec2::new(rng.gen_range(1.0..W_FLOAT-1.), rng.gen_range(1.0..W_FLOAT-1.)))
+    }
+
+    world
+}
+
     pub fn add_being(&mut self, radius: f32, pos: Vec2, rotation: f32, health: f32) {
         let (i, j) = pos_to_cell(pos);
 
@@ -317,6 +342,7 @@ impl World {
                 if !oob(newij, being.radius) {
                     being.pos_update = move_vec;
                 } else {
+                    being.pos = Vec2::new(thread_rng().gen_range(1.0..W_FLOAT-1.), thread_rng().gen_range(1.0..W_FLOAT-1.));
                     being.energy_update -= HEADON_B_HITS_O_DAMAGE / s / 10.;
                 }
             });
@@ -348,7 +374,10 @@ impl World {
                 let ij = two_to_one((i, j));
 
                 for id1 in &self.being_cells[ij] {
-                    // for each being
+                    // TODO: change di, dj to scan over an entire FOV region, let's say -3 to +3 if FOV is 3
+                    // to store type of object, relative distance, relative rotation if being, object energy/health,
+                    // genetic distance from self if another being. to be turned into input token sequence for the transorfmer/rnn(?)
+
                     for (di, dj) in [
                         (-1, -1),
                         (-1, 0),
@@ -629,7 +658,7 @@ pub fn get_fovs(
     beings
         .iter()
         .map(|(_, b)| {
-            let xy = b.pos.round();
+            let xy = b.pos;
             let (x, y) = (xy[0] as u32, xy[1] as u32);
 
             let a = frame
@@ -651,8 +680,8 @@ impl event::EventHandler<ggez::GameError> for MainState {
 
 
         if self.step % VISION_SAMPLE_MULTIPLE == 0 {
-            let frame = ctx.gfx.frame().to_pixels(&ctx.gfx).unwrap();
-            let fovs = get_fovs(frame, &self.world.beings);
+            // let frame = ctx.gfx.frame().to_pixels(&ctx.gfx).unwrap();
+            // let fovs = get_fovs(frame, &self.world.beings);
 
             // forward pass on each being
             // update being actions
@@ -673,7 +702,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
             
             self.being_instances
                 .set(self.world.beings.iter().map(|(_, b)| {
-                    let xy = b.pos.round();
+                    let xy = b.pos;
                     DrawParam::new()
                         .scale(Vec2::new(1., 1.) / 400. * 2. * B_RADIUS)
                         .dest(xy)
@@ -693,7 +722,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
 
             self.food_instances
                 .set(self.world.foods.iter().map(|(_, f)| {
-                    let xy = (f.pos - Vec2::new(F_RADIUS, F_RADIUS)).round();
+                    let xy = f.pos - Vec2::new(F_RADIUS, F_RADIUS);
                     DrawParam::new()
                         .dest(xy.clone())
                         .scale(Vec2::new(1., 1.) / 2048. * 2. * F_RADIUS)
@@ -702,7 +731,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
 
             self.speechlet_instances
                 .set(self.world.speechlets.iter().map(|(_, s)| {
-                    let xy = s.pos.round();
+                    let xy = s.pos;
                     DrawParam::new()
                         .scale(Vec2::new(1., 1.) / 512. * S_RADIUS)
                         .dest(xy)
@@ -727,33 +756,10 @@ impl event::EventHandler<ggez::GameError> for MainState {
     }
 }
 
-// a world populated as intended, this fn mainly to relieve World::new() of some clutter
-pub fn get_world() -> World {
-    let mut world = World::new();
-    let mut rng = thread_rng();
 
-    for i in 0..500 {
-        world.add_being(
-            B_RADIUS,
-            Vec2::new(rng.gen_range(B_FLOAT..W_FLOAT - B_FLOAT), rng.gen_range(B_FLOAT..W_FLOAT - B_FLOAT)),
-            rng.gen_range(-PI..PI),
-            B_START_ENERGY,
-        );
-    }
-
-    for i in 0..0 {
-        world.add_obstruct(Vec2::new(rng.gen_range(1.0..W_FLOAT-1.), rng.gen_range(1.0..W_FLOAT-1.)));
-    }
-
-    for i in 0..2000 {
-        world.add_food(Vec2::new(rng.gen_range(1.0..W_FLOAT-1.), rng.gen_range(1.0..W_FLOAT-1.)))
-    }
-
-    world
-}
 
 pub fn run() -> GameResult {
-    let world = get_world();
+    let world = World::standard_world();
 
     let resource_dir = if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
         let mut path = PathBuf::from(manifest_dir);
@@ -785,9 +791,11 @@ pub fn run() -> GameResult {
     event::run(ctx, event_loop, state)
 }
 
+
 // to let it rip without rendering, mainly to gauge overhead of rendering over step() itself
+
 pub fn gauge() {
-    let mut w = get_world();
+    let mut w = World::standard_world();
     loop {
         w.step(1);
         if w.age % 60 == 0 {

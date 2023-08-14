@@ -11,4 +11,5 @@ ggez = "0.9.3"
 image = "0.24.7"
 rand = "0.8.5"
 slotmap = "1.0.6"
+splitmut = "0.2.1"
 #tch = { version = "0.13.0", features = ["download-libtorch"] }
