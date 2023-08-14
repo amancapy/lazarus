@@ -11,8 +11,8 @@ use std::{env, f32::consts::PI, path::PathBuf};
 mod consts {
     use std::f32::INFINITY;
 
-    pub const W_SIZE: usize = 512;
-    pub const N_CELLS: usize = 256;
+    pub const W_SIZE: usize = 1000;
+    pub const N_CELLS: usize = 200;
     pub const CELL_SIZE: usize = W_SIZE / N_CELLS;
     pub const W_FLOAT: f32 = W_SIZE as f32;
     pub const W_USIZE: u32 = W_SIZE as u32;
@@ -21,7 +21,7 @@ mod consts {
 
     pub const VISION_SAMPLE_MULTIPLE: usize = 16;
 
-    pub const B_SPEED:                                  f32 = 0.5;
+    pub const B_SPEED:                                  f32 = 4.;
     pub const S_SPEED:                                  f32 = 2.;
 
     pub const B_RADIUS:                                 f32 = 1.5;
@@ -732,7 +732,7 @@ pub fn get_world() -> World {
     let mut world = World::new();
     let mut rng = thread_rng();
 
-    for i in 0..200 {
+    for i in 0..500 {
         world.add_being(
             B_RADIUS,
             Vec2::new(rng.gen_range(B_FLOAT..W_FLOAT - B_FLOAT), rng.gen_range(B_FLOAT..W_FLOAT - B_FLOAT)),
@@ -792,7 +792,6 @@ pub fn gauge() {
         w.step(1);
         if w.age % 60 == 0 {
             println!("{}", w.age);
-            dbg!(w.beings.len());
         }
     }
 }
@@ -801,6 +800,6 @@ pub fn main() {
     assert!(W_SIZE % N_CELLS == 0);
     assert!(B_RADIUS < CELL_SIZE as f32);
 
-    // gauge();
-    run();
+    gauge();
+    // run();
 }
