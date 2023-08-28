@@ -29,9 +29,12 @@ mod consts {
     pub const F_RADIUS:                                 f32 = 0.75;
     pub const S_RADIUS:                                 f32 = 0.5;
 
+    pub const B_SCATTER_RADIUS:                         f32 = 25.;
+    pub const B_SCATTER_COUNT:                        usize = 100000;
+
     pub const BASE_ANG_SPEED_DEGREES:                   f32 = 10.;
 
-    pub const B_START_ENERGY:                           f32 = INFINITY;
+    pub const B_START_ENERGY:                           f32 = 10.;
     pub const O_START_HEALTH:                           f32 = 5.;
     pub const F_START_AGE:                              f32 = 2.;
     pub const S_START_AGE:                              f32 = 3.;
@@ -529,9 +532,18 @@ pub fn standard_world() -> Self {
             }
         }
 
-        for (k, pos) in &self.being_deaths {
+        let mut rng = thread_rng();
+        for (k, pos) in &self.being_deaths.clone() {
             self.beings.remove(*k);
             self.being_cells[two_to_one(pos_to_cell(*pos))].retain(|x| x != k);
+
+            for _ in 0..B_SCATTER_COUNT {
+                let (theta, dist) = (rng.gen_range(-PI..PI), rng.gen_range(0.0..B_SCATTER_RADIUS));
+                let dvec = Vec2::new(theta.cos() * dist, theta.sin() * dist);
+
+                let food_pos = *pos + dvec;
+                self.add_food(food_pos);
+            }
         }
 
         self.being_deaths.clear();
@@ -808,6 +820,6 @@ pub fn main() {
     assert!(W_SIZE % N_CELLS == 0);
     assert!(B_RADIUS < CELL_SIZE as f32);
 
-    gauge();
-    // run();
+    // gauge();
+    run();
 }
