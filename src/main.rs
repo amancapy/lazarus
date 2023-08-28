@@ -1,7 +1,16 @@
-use ggez::{conf::{NumSamples, WindowMode, WindowSetup}, graphics::{Color, Image, InstanceArray, DrawParam, Canvas, MeshBuilder, Mesh, Sampler}, event, glam::*, Context, GameResult,};
-use image::{ImageBuffer, Rgba,GenericImageView, imageops::{resize, FilterType::*}};
-use rand::{Rng, thread_rng};
-use slotmap::{SlotMap, DefaultKey};
+use ggez::{
+    conf::{NumSamples, WindowMode, WindowSetup},
+    event,
+    glam::*,
+    graphics::{Canvas, Color, DrawParam, Image, InstanceArray, Mesh, MeshBuilder, Sampler},
+    Context, GameResult,
+};
+use image::{
+    imageops::{resize, FilterType::*},
+    GenericImageView, ImageBuffer, Rgba,
+};
+use rand::{thread_rng, Rng};
+use slotmap::{DefaultKey, SlotMap};
 use std::{env, f32::consts::PI, path::PathBuf};
 
 // use anyhow::Result;
@@ -29,12 +38,13 @@ mod consts {
     pub const F_RADIUS:                                 f32 = 0.75;
     pub const S_RADIUS:                                 f32 = 0.5;
 
+    pub const B_DEATH_ENERGY:                           f32 = 0.5;
     pub const B_SCATTER_RADIUS:                         f32 = 25.;
-    pub const B_SCATTER_COUNT:                        usize = 100000;
+    pub const B_SCATTER_COUNT:                        usize = 10;
 
     pub const BASE_ANG_SPEED_DEGREES:                   f32 = 10.;
 
-    pub const B_START_ENERGY:                           f32 = 10.;
+    pub const B_START_ENERGY:                           f32 = 1.;
     pub const O_START_HEALTH:                           f32 = 5.;
     pub const F_START_AGE:                              f32 = 2.;
     pub const S_START_AGE:                              f32 = 3.;
@@ -231,29 +241,38 @@ impl World {
     }
 
     // a world populated as intended, this fn mainly to relieve World::new() of some clutter
-pub fn standard_world() -> Self {
-    let mut world = World::new();
-    let mut rng = thread_rng();
+    pub fn standard_world() -> Self {
+        let mut world = World::new();
+        let mut rng = thread_rng();
 
-    for i in 0..500 {
-        world.add_being(
-            B_RADIUS,
-            Vec2::new(rng.gen_range(B_FLOAT..W_FLOAT - B_FLOAT), rng.gen_range(B_FLOAT..W_FLOAT - B_FLOAT)),
-            rng.gen_range(-PI..PI),
-            B_START_ENERGY,
-        );
+        for i in 0..500 {
+            world.add_being(
+                B_RADIUS,
+                Vec2::new(
+                    rng.gen_range(B_FLOAT..W_FLOAT - B_FLOAT),
+                    rng.gen_range(B_FLOAT..W_FLOAT - B_FLOAT),
+                ),
+                rng.gen_range(-PI..PI),
+                B_START_ENERGY,
+            );
+        }
+
+        for i in 0..1000 {
+            world.add_obstruct(Vec2::new(
+                rng.gen_range(1.0..W_FLOAT - 1.),
+                rng.gen_range(1.0..W_FLOAT - 1.),
+            ));
+        }
+
+        for i in 0..2000 {
+            world.add_food(Vec2::new(
+                rng.gen_range(1.0..W_FLOAT - 1.),
+                rng.gen_range(1.0..W_FLOAT - 1.),
+            ), F_START_AGE);
+        }
+
+        world
     }
-
-    for i in 0..1000 {
-        world.add_obstruct(Vec2::new(rng.gen_range(1.0..W_FLOAT-1.), rng.gen_range(1.0..W_FLOAT-1.)));
-    }
-
-    for i in 0..2000 {
-        world.add_food(Vec2::new(rng.gen_range(1.0..W_FLOAT-1.), rng.gen_range(1.0..W_FLOAT-1.)))
-    }
-
-    world
-}
 
     pub fn add_being(&mut self, radius: f32, pos: Vec2, rotation: f32, health: f32) {
         let (i, j) = pos_to_cell(pos);
@@ -295,12 +314,12 @@ pub fn standard_world() -> Self {
         self.ob_id += 1;
     }
 
-    pub fn add_food(&mut self, pos: Vec2) {
+    pub fn add_food(&mut self, pos: Vec2, age: f32) {
         let (i, j) = pos_to_cell(pos);
 
         let food = Food {
             pos: pos,
-            age: 5.,
+            age: age,
             val: F_VAL,
             eaten: false,
 
@@ -345,7 +364,10 @@ pub fn standard_world() -> Self {
                 if !oob(newij, being.radius) {
                     being.pos_update = move_vec;
                 } else {
-                    being.pos = Vec2::new(thread_rng().gen_range(1.0..W_FLOAT-1.), thread_rng().gen_range(1.0..W_FLOAT-1.));
+                    being.pos = Vec2::new(
+                        thread_rng().gen_range(1.0..W_FLOAT - 1.),
+                        thread_rng().gen_range(1.0..W_FLOAT - 1.),
+                    );
                     being.energy_update -= HEADON_B_HITS_O_DAMAGE / s / 10.;
                 }
             });
@@ -542,7 +564,9 @@ pub fn standard_world() -> Self {
                 let dvec = Vec2::new(theta.cos() * dist, theta.sin() * dist);
 
                 let food_pos = *pos + dvec;
-                self.add_food(food_pos);
+                if !oob(food_pos, F_RADIUS) {
+                    self.add_food(food_pos, B_DEATH_ENERGY / B_SCATTER_RADIUS as f32);
+                };
             }
         }
 
@@ -606,7 +630,7 @@ pub fn standard_world() -> Self {
         let mut rng = thread_rng();
         for _ in 0..N_FOOD_SPAWN_PER_STEP {
             let ij = Vec2::new(rng.gen_range(1.0..W_FLOAT), rng.gen_range(1.0..W_FLOAT));
-            self.add_food(ij);
+            self.add_food(ij, F_START_AGE);
         }
     }
 
@@ -644,7 +668,6 @@ impl MainState {
         let food = Image::from_path(ctx, "/green_circle.png")?;
         let speechlet = Image::from_path(ctx, "/blue_circle.png")?;
 
-
         let being_instances = InstanceArray::new(ctx, being);
         let obstruct_instances = InstanceArray::new(ctx, obstruct);
         let food_instances = InstanceArray::new(ctx, food);
@@ -679,7 +702,6 @@ pub fn get_fovs(
                 .clone();
 
             resize(&a, 13, 13, Gaussian)
-
         })
         .collect()
 }
@@ -688,20 +710,13 @@ impl event::EventHandler<ggez::GameError> for MainState {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
         self.step += 1;
 
-
-
-
         if self.step % VISION_SAMPLE_MULTIPLE == 0 {
             // let frame = ctx.gfx.frame().to_pixels(&ctx.gfx).unwrap();
             // let fovs = get_fovs(frame, &self.world.beings);
 
             // forward pass on each being
             // update being actions
-            println!(
-                "timestep: {}, fps: {}",
-                self.world.age,
-                ctx.time.fps(),
-            );
+            println!("timestep: {}, fps: {}", self.world.age, ctx.time.fps(),);
         }
 
         self.world.step(1);
@@ -711,7 +726,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
     fn draw(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
         if self.step % VISION_SAMPLE_MULTIPLE == 0 {
             let mut canvas = Canvas::from_frame(ctx, Color::BLACK);
-            
+
             self.being_instances
                 .set(self.world.beings.iter().map(|(_, b)| {
                     let xy = b.pos;
@@ -720,9 +735,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                         .dest(xy)
                         .offset(Vec2::new(200., 200.))
                         .rotation(thread_rng().gen_range(-PI..PI))
-
-                })
-            );
+                }));
 
             self.obstruct_instances
                 .set(self.world.obstructs.iter().map(|(_, o)| {
@@ -738,8 +751,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                     DrawParam::new()
                         .dest(xy.clone())
                         .scale(Vec2::new(1., 1.) / 2048. * 2. * F_RADIUS)
-                })
-            );
+                }));
 
             self.speechlet_instances
                 .set(self.world.speechlets.iter().map(|(_, s)| {
@@ -749,8 +761,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                         .dest(xy)
                         .offset(Vec2::new(256., 256.))
                         .rotation(s.rotation)
-                })
-            );
+                }));
 
             let param = DrawParam::new();
             canvas.draw(&self.being_instances, param);
@@ -759,16 +770,13 @@ impl event::EventHandler<ggez::GameError> for MainState {
             canvas.draw(&self.speechlet_instances, param);
 
             let a = canvas.finish(ctx);
-        
-            
+
             a
         } else {
             Ok(())
         }
     }
 }
-
-
 
 pub fn run() -> GameResult {
     let world = World::standard_world();
@@ -802,7 +810,6 @@ pub fn run() -> GameResult {
     let state = MainState::new(&mut ctx, world)?;
     event::run(ctx, event_loop, state)
 }
-
 
 // to let it rip without rendering, mainly to gauge overhead of rendering over step() itself
 
