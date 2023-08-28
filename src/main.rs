@@ -20,13 +20,14 @@ use std::{env, f32::consts::PI, path::PathBuf};
 mod consts {
     use std::f32::INFINITY;
 
-    pub const W_SIZE: usize = 1000;
-    pub const N_CELLS: usize = 250;
-    pub const CELL_SIZE: usize = W_SIZE / N_CELLS;
-    pub const W_FLOAT: f32 = W_SIZE as f32;
-    pub const W_USIZE: u32 = W_SIZE as u32;
-    pub const B_FOV: u32 = 32;
-    pub const B_FLOAT: f32 = (B_FOV + 1) as f32;
+    pub const W_SIZE:                                 usize = 1000;
+    pub const N_CELLS:                                usize = 250;
+    pub const CELL_SIZE:                              usize = W_SIZE / N_CELLS;
+    pub const W_FLOAT:                                  f32 = W_SIZE as f32;
+    pub const W_USIZE:                                  u32 = W_SIZE as u32;
+    pub const B_FOV:                                    i32 = 4;
+    
+    pub const B_FLOAT:                                  f32 = (B_FOV + 1) as f32;
 
     pub const VISION_SAMPLE_MULTIPLE: usize = 1;
 
@@ -40,7 +41,7 @@ mod consts {
 
     pub const B_DEATH_ENERGY:                           f32 = 0.5;
     pub const B_SCATTER_RADIUS:                         f32 = 25.;
-    pub const B_SCATTER_COUNT:                        usize = 10;
+    pub const B_SCATTER_COUNT:                        usize = 100;
 
     pub const BASE_ANG_SPEED_DEGREES:                   f32 = 10.;
 
@@ -211,6 +212,7 @@ pub struct World {
     food_deaths: Vec<(DefaultKey, Vec2)>,
     speechlet_deaths: Vec<(DefaultKey, Vec2)>,
 
+    fov_indices: Vec<(i32, i32)>,
     age: usize,
 }
 
@@ -236,6 +238,11 @@ impl World {
             obstruct_deaths: vec![],
             speechlet_deaths: vec![],
 
+            fov_indices: (-B_FOV..B_FOV).flat_map(|i| {
+                (-B_FOV..B_FOV).(move |j| {
+                    (i, j)
+                }).collect()
+            }).collect(),
             age: 0,
         }
     }
@@ -684,27 +691,27 @@ impl MainState {
     }
 }
 
-pub fn get_fovs(
-    frame: Vec<u8>,
-    beings: &SlotMap<DefaultKey, Being>,
-) -> Vec<ImageBuffer<Rgba<u8>, Vec<u8>>> {
-    let frame = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(W_USIZE, W_USIZE, frame).expect("");
+// pub fn get_fovs(
+//     frame: Vec<u8>,
+//     beings: &SlotMap<DefaultKey, Being>,
+// ) -> Vec<ImageBuffer<Rgba<u8>, Vec<u8>>> {
+//     let frame = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(W_USIZE, W_USIZE, frame).expect("");
 
-    beings
-        .iter()
-        .map(|(_, b)| {
-            let xy = b.pos;
-            let (x, y) = (xy[0] as u32, xy[1] as u32);
+//     beings
+//         .iter()
+//         .map(|(_, b)| {
+//             let xy = b.pos;
+//             let (x, y) = (xy[0] as u32, xy[1] as u32);
 
-            let a = frame
-                .view(x - B_FOV as u32, y - B_FOV, 2 * B_FOV - 1, 2 * B_FOV + 1)
-                .to_image()
-                .clone();
+//             let a = frame
+//                 .view(x - B_FOV as u32, y - B_FOV, 2 * B_FOV - 1, 2 * B_FOV + 1)
+//                 .to_image()
+//                 .clone();
 
-            resize(&a, 13, 13, Gaussian)
-        })
-        .collect()
-}
+//             resize(&a, 13, 13, Gaussian)
+//         })
+//         .collect()
+// }
 
 impl event::EventHandler<ggez::GameError> for MainState {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
@@ -815,6 +822,7 @@ pub fn run() -> GameResult {
 
 pub fn gauge() {
     let mut w = World::standard_world();
+    println!("{:?}", w.fov_indices);
     loop {
         w.step(1);
         if w.age % 60 == 0 {
@@ -827,6 +835,6 @@ pub fn main() {
     assert!(W_SIZE % N_CELLS == 0);
     assert!(B_RADIUS < CELL_SIZE as f32);
 
-    // gauge();
-    run();
+    gauge();
+    // run();
 }
