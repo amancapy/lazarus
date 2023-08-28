@@ -25,7 +25,7 @@ mod consts {
     pub const CELL_SIZE:                              usize = W_SIZE / N_CELLS;
     pub const W_FLOAT:                                  f32 = W_SIZE as f32;
     pub const W_USIZE:                                  u32 = W_SIZE as u32;
-    pub const B_FOV:                                  isize = 4;
+    pub const B_FOV:                                  isize = 10;
     
     pub const B_FLOAT:                                  f32 = (B_FOV + 1) as f32;
 
