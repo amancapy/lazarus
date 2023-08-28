@@ -25,22 +25,21 @@ mod consts {
     pub const CELL_SIZE:                              usize = W_SIZE / N_CELLS;
     pub const W_FLOAT:                                  f32 = W_SIZE as f32;
     pub const W_USIZE:                                  u32 = W_SIZE as u32;
-    pub const B_FOV:                                  isize = 10;
-    
-    pub const B_FLOAT:                                  f32 = (B_FOV + 1) as f32;
+
+    pub const B_FOV:                                  isize = 5;
 
     pub const VISION_SAMPLE_MULTIPLE: usize = 1;
 
     pub const B_SPEED:                                  f32 = 1.;
     pub const S_SPEED:                                  f32 = 2.;
 
-    pub const B_RADIUS:                                 f32 = 1.;
-    pub const O_RADIUS:                                 f32 = 1.25;
-    pub const F_RADIUS:                                 f32 = 0.75;
-    pub const S_RADIUS:                                 f32 = 0.5;
+    pub const B_RADIUS:                                 f32 = 3.5;
+    pub const O_RADIUS:                                 f32 = 3.;
+    pub const F_RADIUS:                                 f32 = 2.5;
+    pub const S_RADIUS:                                 f32 = 1.5;
 
     pub const B_DEATH_ENERGY:                           f32 = 0.5;
-    pub const B_SCATTER_RADIUS:                         f32 = 25.;
+    pub const B_SCATTER_RADIUS:                         f32 = 10.;
     pub const B_SCATTER_COUNT:                        usize = 100;
 
     pub const BASE_ANG_SPEED_DEGREES:                   f32 = 10.;
@@ -258,8 +257,8 @@ impl World {
             world.add_being(
                 B_RADIUS,
                 Vec2::new(
-                    rng.gen_range(B_FLOAT..W_FLOAT - B_FLOAT),
-                    rng.gen_range(B_FLOAT..W_FLOAT - B_FLOAT),
+                    rng.gen_range(B_RADIUS..W_FLOAT - B_RADIUS),
+                    rng.gen_range(B_RADIUS..W_FLOAT - B_RADIUS),
                 ),
                 rng.gen_range(-PI..PI),
                 B_START_ENERGY,
@@ -323,13 +322,13 @@ impl World {
         self.ob_id += 1;
     }
 
-    pub fn add_food(&mut self, pos: Vec2, age: f32) {
+    pub fn add_food(&mut self, pos: Vec2, val: f32) {
         let (i, j) = pos_to_cell(pos);
 
         let food = Food {
             pos: pos,
-            age: age,
-            val: F_VAL,
+            age: F_START_AGE,
+            val: val,
             eaten: false,
 
             id: self.food_id,
@@ -814,6 +813,7 @@ pub fn run() -> GameResult {
 
 pub fn gauge() {
     let mut w = World::standard_world();
+    // println!("{:?}", w.fov_indices.len());
     loop {
         w.step(1);
         if w.age % 60 == 0 {
@@ -826,6 +826,6 @@ pub fn main() {
     assert!(W_SIZE % N_CELLS == 0);
     assert!(B_RADIUS < CELL_SIZE as f32);
 
-    gauge();
-    // run();
+    // gauge();
+    run();
 }
