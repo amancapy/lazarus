@@ -25,7 +25,7 @@ mod consts {
     pub const CELL_SIZE:                              usize = W_SIZE / N_CELLS;
     pub const W_FLOAT:                                  f32 = W_SIZE as f32;
     pub const W_USIZE:                                  u32 = W_SIZE as u32;
-    pub const B_FOV:                                    i32 = 4;
+    pub const B_FOV:                                  isize = 4;
     
     pub const B_FLOAT:                                  f32 = (B_FOV + 1) as f32;
 
@@ -212,7 +212,7 @@ pub struct World {
     food_deaths: Vec<(DefaultKey, Vec2)>,
     speechlet_deaths: Vec<(DefaultKey, Vec2)>,
 
-    fov_indices: Vec<(i32, i32)>,
+    fov_indices: Vec<(isize, isize)>,
     age: usize,
 }
 
@@ -238,10 +238,12 @@ impl World {
             obstruct_deaths: vec![],
             speechlet_deaths: vec![],
 
-            fov_indices: (-B_FOV..B_FOV).flat_map(|i| {
-                (-B_FOV..B_FOV).(move |j| {
+            fov_indices: (-B_FOV..=B_FOV).flat_map(|i| {
+                (-B_FOV..=B_FOV).map(move |j| {
                     (i, j)
-                }).collect()
+                })
+            }).filter(|(i, j)| {
+                i.pow(2) + j.pow(2) <= B_FOV.pow(2)
             }).collect(),
             age: 0,
         }
@@ -408,19 +410,9 @@ impl World {
                 for id1 in &self.being_cells[ij] {
                     // TODO: change di, dj to scan over an entire FOV region, let's say -3 to +3 if FOV is 3
                     // to store type of object, relative distance, relative rotation if being, object energy/health,
-                    // genetic distance from self if another being. to be turned into input token sequence for the transorfmer/rnn(?)
+                    // genetic distance from self if another being. to be turned into input token sequence for the nn
 
-                    for (di, dj) in [
-                        (-1, -1),
-                        (-1, 0),
-                        (-1, 1),
-                        (0, -1),
-                        (0, 0),
-                        (0, 1),
-                        (1, -1),
-                        (1, 0),
-                        (1, 1),
-                    ] {
+                    for (di, dj) in &self.fov_indices {
                         let (ni, nj) = ((i as isize) + di, (j as isize) + dj);
 
                         if !(ni < 0 || ni >= w || nj < 0 || nj >= w) {
@@ -822,7 +814,6 @@ pub fn run() -> GameResult {
 
 pub fn gauge() {
     let mut w = World::standard_world();
-    println!("{:?}", w.fov_indices);
     loop {
         w.step(1);
         if w.age % 60 == 0 {
