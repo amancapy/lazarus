@@ -47,14 +47,14 @@ mod consts {
     pub const BASE_ANG_SPEED_DEGREES:                   f32 = 10.;
 
     pub const B_START_ENERGY:                           f32 = 10.;
-    pub const O_START_HEALTH:                           f32 = 5.;
-    pub const F_START_AGE:                              f32 = 2.;
-    pub const S_START_AGE:                              f32 = 3.;
+    pub const O_START_HEALTH:                           f32 = 25.;
+    pub const F_START_AGE:                              f32 = 5.;
+    pub const S_START_AGE:                              f32 = 5.;
     pub const F_VAL:                                    f32 = 1.;
 
     pub const B_TIRE_RATE:                              f32 = 0.001;
-    pub const O_AGE_RATE:                               f32 = 0.002;
-    pub const F_AGE_RATE:                               f32 = 0.002;
+    pub const O_AGE_RATE:                               f32 = 0.001;
+    pub const F_AGE_RATE:                               f32 = 0.001;
     pub const S_SOFTEN_RATE:                            f32 = 0.005;
 
     pub const B_HEADON_DAMAGE:                          f32 = 0.25;
@@ -69,6 +69,7 @@ mod consts {
 
     pub const SPEECHLET_LEN:                          usize = 8;                   // length of the sound vector a being can emit
     pub const B_OUTPUT_LEN:                           usize = 5 + SPEECHLET_LEN;   // f-b, l-r, rotate, spawn obstruct, spawn_speechlet
+}
 
 use consts::*;
 
@@ -199,7 +200,6 @@ pub struct Speechlet {
     heard: bool,
 
     pos_update: Vec2,
-    age_update: f32,
 }
 
 pub struct World {
@@ -370,7 +370,6 @@ impl World {
             age: S_START_AGE,
 
             pos_update: Vec2::new(0., 0.),
-            age_update: 0.,
 
             heard: false,
         };
@@ -543,7 +542,7 @@ impl World {
 
             if !oob(new_pos, b.radius) {
                 b.pos = new_pos;
-                b.pos_update = Vec2::new(0., 0.);
+                b.pos_update = Vec2::ZERO;
 
                 let (oi, oj) = b.cell;
                 let (i, j) = pos_to_cell(new_pos);
@@ -842,8 +841,8 @@ pub fn gauge() {
     // println!("{:?}", w.fov_indices.len());
     loop {
         w.step(1);
-        if w.age % 60 == 0 {
-            println!("{} {}", w.age, w.beings.len());
+        if w.age % 3600 == 0 {
+            println!("{} {}", w.age / 3600, w.beings.len());
         }
     }
 }
