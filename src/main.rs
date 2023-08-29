@@ -11,7 +11,7 @@ use image::{
 };
 use rand::{thread_rng, Rng};
 use slotmap::{DefaultKey, SlotMap};
-use std::{env, f32::consts::PI, path::PathBuf};
+use std::{env, f32::consts::PI, path::PathBuf, process::id};
 
 // use anyhow::Result;
 // use tch::{nn, nn::ModuleT, nn::OptimizerConfig, Device, Tensor, Kind};
@@ -68,7 +68,7 @@ mod consts {
     pub const N_FOOD_SPAWN_PER_STEP:                  usize = 2; 
 
     pub const SPEECHLET_LEN:                          usize = 8;                   // length of the sound vector a being can emit
-    pub const B_OUTPUT_LEN:                           usize = 3 + SPEECHLET_LEN;   // f-b, l-r, rotate
+    pub const B_OUTPUT_LEN:                           usize = 4 + SPEECHLET_LEN;   // f-b, l-r, spawn obstruct, rotate
 }
 
 use consts::*;
@@ -427,6 +427,10 @@ impl World {
                 let ij = two_to_one((i, j));
 
                 for id1 in &self.being_cells[ij] {
+                    {
+                        let b = self.beings.get(*id1).unwrap();
+                    }
+
                     for (di, dj) in &self.fov_indices {
                         let (ni, nj) = ((i as isize) + di, (j as isize) + dj);
 
