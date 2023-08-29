@@ -30,7 +30,7 @@ mod consts {
 
     pub const B_FOV:                                  isize = 5;
 
-    pub const VISION_SAMPLE_MULTIPLE:                 usize = 1;                            // to be deprd
+    pub const VISION_SAMPLE_MULTIPLE:                 usize = 1;                    // to be deprd
 
     pub const B_SPEED:                                  f32 = 1.;
     pub const S_SPEED:                                  f32 = 2.;
@@ -60,15 +60,15 @@ mod consts {
     pub const B_HEADON_DAMAGE:                          f32 = 0.25;
     pub const B_REAR_DAMAGE:                            f32 = 1.;
     pub const HEADON_B_HITS_O_DAMAGE:                   f32 = 0.1;
-    pub const SPAWN_O_COST:                             f32 = 1.;                           // cost for a being to spawn an obstruct at their mouth
+    pub const SPAWN_O_COST:                             f32 = 1.;                  // cost for a being to spawn an obstruct at their mouth
 
-    pub const LOW_ENERGY_SPEED_DAMP_RATE:               f32 = 0.5;                          // beings slow down when their energy runs low
-    pub const OFF_DIR_MOVEMENT_SPEED_DAMP_RATE:         f32 = 0.5;                          // beings slow down when not moving face-forward
+    pub const LOW_ENERGY_SPEED_DAMP_RATE:               f32 = 0.5;                 // beings slow down when their energy runs low
+    pub const OFF_DIR_MOVEMENT_SPEED_DAMP_RATE:         f32 = 0.5;                 // beings slow down when not moving face-forward
 
     pub const N_FOOD_SPAWN_PER_STEP:                  usize = 2; 
 
-    pub const SPEECHLET_LEN:                          usize = 32;                           // length of the sound vector a being can emit
-    pub const B_OUTPUT_LEN:                           usize = 3;                            // f-b, l-r, rotate
+    pub const SPEECHLET_LEN:                          usize = 8;                   // length of the sound vector a being can emit
+    pub const B_OUTPUT_LEN:                           usize = 3 + SPEECHLET_LEN;   // f-b, l-r, rotate
 }
 
 use consts::*;
@@ -145,12 +145,12 @@ pub fn b_collides_f(b: &Being, f: &Food) -> (f32, Vec<f32>) {
     (r1 + r2 - centre_dist, vec![1., centre_dist, b.pos.angle_between(f.pos) / PI, f.age / F_START_AGE])
 }
 
-pub fn b_collides_s(b: &Being, s: &Speechlet) -> f32 {
+pub fn b_collides_s(b: &Being, s: &Speechlet) -> (f32, Vec<f32>) {
     let c1c2 = s.pos - b.pos;
     let centre_dist = c1c2.length();
     let (r1, r2) = (b.radius, S_RADIUS);
 
-    r1 + r2 - centre_dist
+    (r1 + r2 - centre_dist, vec![centre_dist, b.pos.angle_between(s.pos) / PI, s.age / S_START_AGE])
 }
 
 #[derive(Debug)]
@@ -171,6 +171,7 @@ pub struct Being {
     being_inputs: Vec<Vec<f32>>,
     food_obstruct_inputs: Vec<Vec<f32>>,
     speechlet_inputs: Vec<Vec<f32>>,
+    heard_speechlet_inputs: Vec<Vec<f32>>,
 
     output: Vec<f32>
 }
@@ -314,6 +315,7 @@ impl World {
             being_inputs: vec![],
             food_obstruct_inputs: vec![],
             speechlet_inputs: vec![],
+            heard_speechlet_inputs: vec![],
 
             output: vec![],
         };
@@ -513,9 +515,11 @@ impl World {
 
                                 let s_ref = s.as_ref().unwrap();
 
-                                let overlap = b_collides_s(&b, s_ref);
+                                let (overlap, rel_vec) = b_collides_s(&b, s_ref);
+                                b.speechlet_inputs.push(rel_vec);
+
                                 if overlap > 0. && !s_ref.heard {
-                                    b.speechlet_inputs.push(s_ref.speechlet.clone());
+                                    b.heard_speechlet_inputs.push(s_ref.speechlet.clone());
                                     self.speechlet_deaths.push((*s_id, s_ref.pos));
                                     s.unwrap().heard = true;
                                 }
