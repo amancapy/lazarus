@@ -46,11 +46,11 @@ mod consts {
 
     pub const BASE_ANG_SPEED_DEGREES:                   f32 = 10.;
 
-    pub const B_START_ENERGY:                           f32 = 1.;
+    pub const B_START_ENERGY:                           f32 = 10.;
     pub const O_START_HEALTH:                           f32 = 5.;
     pub const F_START_AGE:                              f32 = 2.;
     pub const S_START_AGE:                              f32 = 3.;
-    pub const F_VAL:                                    f32 = 3.;
+    pub const F_VAL:                              f32 = 3.;
 
     pub const B_TIRE_RATE:                              f32 = 0.002;
     pub const O_AGE_RATE:                               f32 = 0.002;
@@ -289,7 +289,7 @@ impl World {
             world.add_food(Vec2::new(
                 rng.gen_range(1.0..W_FLOAT - 1.),
                 rng.gen_range(1.0..W_FLOAT - 1.),
-            ), F_START_AGE);
+            ), F_VAL);
         }
 
         world
@@ -427,9 +427,6 @@ impl World {
                 let ij = two_to_one((i, j));
 
                 for id1 in &self.being_cells[ij] {
-                    {
-                        let b = self.beings.get(*id1).unwrap();
-                    }
 
                     for (di, dj) in &self.fov_indices {
                         let (ni, nj) = ((i as isize) + di, (j as isize) + dj);
@@ -506,7 +503,7 @@ impl World {
                                 let (overlap, rel_vec) = b_collides_f(&b, f_ref);
                                 b.food_obstruct_inputs.push(rel_vec);
 
-                                if overlap > 0. && !f_ref.eaten {
+                                if overlap > 0. && !f_ref.eaten &&b.energy <= B_START_ENERGY {
                                     b.energy_update += f_ref.val;
                                     self.food_deaths.push((*f_id, f_ref.pos));
                                     f.unwrap().eaten = true;
@@ -651,7 +648,7 @@ impl World {
         let mut rng = thread_rng();
         for _ in 0..N_FOOD_SPAWN_PER_STEP {
             let ij = Vec2::new(rng.gen_range(1.0..W_FLOAT), rng.gen_range(1.0..W_FLOAT));
-            self.add_food(ij, F_START_AGE);
+            self.add_food(ij, F_VAL);
         }
     }
 
