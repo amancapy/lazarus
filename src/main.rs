@@ -145,12 +145,12 @@ pub fn b_collides_f(b: &Being, f: &Food) -> (f32, Vec<f32>) {
     (r1 + r2 - centre_dist, vec![1., centre_dist, b.pos.angle_between(f.pos) / PI, f.age / F_START_AGE])
 }
 
-pub fn b_collides_s(b: &Being, s: &Speechlet) -> (f32, Vec<f32>) {
+pub fn b_collides_s(b: &Being, s: &Speechlet) -> f32 {
     let c1c2 = s.pos - b.pos;
     let centre_dist = c1c2.length();
     let (r1, r2) = (b.radius, S_RADIUS);
 
-    (r1 + r2 - centre_dist, vec![centre_dist, b.pos.angle_between(s.pos), s.age].append(&mut s.speechlet.clone()))
+    r1 + r2 - centre_dist
 }
 
 #[derive(Debug)]
@@ -473,6 +473,7 @@ impl World {
 
                                 let (overlap, centre_dist, c1c2, rel_vec) = b_collides_o(b, o);
                                 b.food_obstruct_inputs.push(rel_vec);
+
                                 if overlap > 0. {
                                     let d_p = overlap / centre_dist * c1c2;
                                     let half_dist = d_p / 1.9;
@@ -491,31 +492,30 @@ impl World {
                             for f_id in &self.food_cells[nij] {
                                 // for a food similarly
 
-                                let b = self.beings.get_mut(*id1);
+                                let b = self.beings.get_mut(*id1).unwrap();
                                 let f = self.foods.get_mut(*f_id);
 
-                                let b_ref = b.as_ref().unwrap();
                                 let f_ref = f.as_ref().unwrap();
 
-                                let overlap = b_collides_f(b_ref, f_ref);
+                                let (overlap, rel_vec) = b_collides_f(&b, f_ref);
+                                b.food_obstruct_inputs.push(rel_vec);
 
-                                if overlap && !f_ref.eaten {
-                                    b.unwrap().energy_update += f_ref.val;
+                                if overlap > 0. && !f_ref.eaten {
+                                    b.energy_update += f_ref.val;
                                     self.food_deaths.push((*f_id, f_ref.pos));
                                     f.unwrap().eaten = true;
                                 }
                             }
 
                             for s_id in &self.speechlet_cells[nij] {
-                                let b = self.beings.get_mut(*id1);
+                                let b = self.beings.get_mut(*id1).unwrap();
                                 let s = self.speechlets.get_mut(*s_id);
 
-                                let b_ref = b.as_ref().unwrap();
                                 let s_ref = s.as_ref().unwrap();
 
-                                let overlap = b_collides_s(b_ref, s_ref);
-                                if overlap && !s_ref.heard {
-                                    b.unwrap().speechlet_inputs.push(s_ref.speechlet.clone());
+                                let overlap = b_collides_s(&b, s_ref);
+                                if overlap > 0. && !s_ref.heard {
+                                    b.speechlet_inputs.push(s_ref.speechlet.clone());
                                     self.speechlet_deaths.push((*s_id, s_ref.pos));
                                     s.unwrap().heard = true;
                                 }
