@@ -826,6 +826,6 @@ pub fn main() {
     assert!(W_SIZE % N_CELLS == 0);
     assert!(B_RADIUS < CELL_SIZE as f32);
 
-    // gauge();
-    run();
+    gauge();
+    // run();
 }
