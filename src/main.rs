@@ -50,9 +50,9 @@ mod consts {
     pub const O_START_HEALTH:                           f32 = 5.;
     pub const F_START_AGE:                              f32 = 2.;
     pub const S_START_AGE:                              f32 = 3.;
-    pub const F_VAL:                              f32 = 3.;
+    pub const F_VAL:                                    f32 = 1.;
 
-    pub const B_TIRE_RATE:                              f32 = 0.002;
+    pub const B_TIRE_RATE:                              f32 = 0.001;
     pub const O_AGE_RATE:                               f32 = 0.002;
     pub const F_AGE_RATE:                               f32 = 0.002;
     pub const S_SOFTEN_RATE:                            f32 = 0.005;
@@ -752,7 +752,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                         .scale(Vec2::new(1., 1.) / 400. * 2. * B_RADIUS)
                         .dest(xy)
                         .offset(Vec2::new(200., 200.))
-                        .rotation(thread_rng().gen_range(-PI..PI))
+                        .rotation(b.rotation)
                 }));
 
             self.obstruct_instances
