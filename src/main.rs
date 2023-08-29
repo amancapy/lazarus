@@ -68,8 +68,7 @@ mod consts {
     pub const N_FOOD_SPAWN_PER_STEP:                  usize = 2; 
 
     pub const SPEECHLET_LEN:                          usize = 8;                   // length of the sound vector a being can emit
-    pub const B_OUTPUT_LEN:                           usize = 4 + SPEECHLET_LEN;   // f-b, l-r, spawn obstruct, rotate
-}
+    pub const B_OUTPUT_LEN:                           usize = 5 + SPEECHLET_LEN;   // f-b, l-r, rotate, spawn obstruct, spawn_speechlet
 
 use consts::*;
 
@@ -652,6 +651,12 @@ impl World {
         }
     }
 
+    pub fn perform_being_outputs(&mut self) {
+        self.beings.iter().for_each(|(k, b)| {
+            let output = b.output.clone();
+        });
+    }
+
     pub fn step(&mut self, substeps: usize) {
         for _ in 0..substeps {
             self.move_beings(substeps);
@@ -659,6 +664,7 @@ impl World {
             self.update_cells();
         }
 
+        self.perform_being_outputs();
         self.move_speechlets();
         self.tire_beings();
         self.age_foods();
