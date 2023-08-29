@@ -25,10 +25,11 @@ mod consts {
     pub const W_FLOAT:                                  f32 = W_SIZE as f32;
     pub const W_USIZE:                                  u32 = W_SIZE as u32;
 
-    
+    pub const N_CLANS:                                usize = 4;
+
     pub const B_FOV:                                  isize = 5;
 
-    pub const VISION_SAMPLE_MULTIPLE:                 usize = 1;                           // to be deprd
+    pub const VISION_SAMPLE_MULTIPLE:                 usize = 1;                            // to be deprd
 
     pub const B_SPEED:                                  f32 = 1.;
     pub const S_SPEED:                                  f32 = 2.;
@@ -118,12 +119,19 @@ pub fn oob(ij: Vec2, r: f32) -> bool {
         || bot_border_trespass(j, r)
 }
 
-pub fn b_collides_b(b1: &Being, b2: &Being) -> (f32, f32, Vec2) {
+pub fn b_collides_b(b1: &Being, b2: &Being) -> (f32, f32, Vec2, Vec<f32>) {
     let c1c2 = b2.pos - b1.pos;
     let centre_dist = c1c2.length();
     let (r1, r2) = (b1.radius, b2.radius);
 
-    (r1 + r2 - centre_dist, centre_dist, c1c2)
+    let mut rel_vec = b2.clan.clone();
+    rel_vec.push(b1.rotation - b2.rotation);
+    rel_vec.push(centre_dist);
+    rel_vec.push(b2.energy);
+    rel_vec.push(b2.pos[0]);
+    rel_vec.push(b2.pos[1]);
+
+    (r1 + r2 - centre_dist, centre_dist, c1c2, rel_vec)
 }
 
 pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2) {
@@ -154,10 +162,10 @@ pub struct Being {
     radius: f32, // to be deprecated
     rotation: f32,
     energy: f32,
+    clan: Vec<f32>,
 
     cell: (usize, usize),
     id: usize, // vestigial, may stick around
-    inputs: Vec<[f32; SPEECHLET_LEN]>,
 
     pos_update: Vec2,
     energy_update: f32,
@@ -165,6 +173,8 @@ pub struct Being {
 
     being_inputs: Vec<Vec<f32>>,
     food_obstruct_inputs: Vec<Vec<f32>>,
+    speechlet_inputs: Vec<Vec<f32>>,
+
     output: Vec<f32>
 }
 
@@ -185,7 +195,7 @@ pub struct Food {
 
 #[derive(Debug)]
 pub struct Speechlet {
-    speechlet: [f32; SPEECHLET_LEN],
+    speechlet: Vec<f32>,
     rotation: f32,
     pos: Vec2,
     age: f32,
@@ -266,6 +276,7 @@ impl World {
                 ),
                 rng.gen_range(-PI..PI),
                 B_START_ENERGY,
+                vec![0., 0., 0., 1.]
             );
         }
 
@@ -286,18 +297,18 @@ impl World {
         world
     }
 
-    pub fn add_being(&mut self, radius: f32, pos: Vec2, rotation: f32, health: f32) {
+    pub fn add_being(&mut self, radius: f32, pos: Vec2, rotation: f32, health: f32, clan: Vec<f32>) {
         let (i, j) = pos_to_cell(pos);
 
         let being = Being {
             radius: radius,
             pos: pos,
             rotation: rotation,
-
             energy: health,
+            clan: clan,
+
             cell: (i, j),
             id: self.being_id,
-            inputs: vec![],
 
             pos_update: Vec2::new(0., 0.),
             energy_update: 0.,
@@ -305,6 +316,8 @@ impl World {
 
             being_inputs: vec![],
             food_obstruct_inputs: vec![],
+            speechlet_inputs: vec![],
+
             output: vec![],
         };
 
@@ -349,7 +362,7 @@ impl World {
         self.food_id += 1;
     }
 
-    pub fn add_speechlet(&mut self, speechlet: [f32; SPEECHLET_LEN], pos: Vec2, rotation: f32) {
+    pub fn add_speechlet(&mut self, speechlet: Vec<f32>, pos: Vec2, rotation: f32) {
         let (i, j) = pos_to_cell(pos);
 
         let speechlet = Speechlet {
@@ -415,10 +428,6 @@ impl World {
                 let ij = two_to_one((i, j));
 
                 for id1 in &self.being_cells[ij] {
-                    // TODO: change di, dj to scan over an entire FOV region, let's say -3 to +3 if FOV is 3
-                    // to store type of object, relative distance, relative rotation if being, object energy/health,
-                    // genetic distance from self if another being. to be turned into input token sequence for the nn
-
                     for (di, dj) in &self.fov_indices {
                         let (ni, nj) = ((i as isize) + di, (j as isize) + dj);
 
@@ -430,14 +439,14 @@ impl World {
                             for id2 in &self.being_cells[nij] {
                                 // for another being in the same or one of the 8 neighbouring cells
                                 if !(id1 == id2) {
-                                    let (overlap, centre_dist, c1c2) = b_collides_b(
+                                    let (overlap, centre_dist, c1c2, rel_vec) = b_collides_b(
                                         &self.beings.get(*id1).unwrap(),
                                         &self.beings.get(*id2).unwrap(),
                                     );
+                                    let b1 = self.beings.get_mut(*id1).unwrap();
+                                    b1.being_inputs.push(rel_vec);
 
                                     if overlap > 0. {
-                                        let b1 = self.beings.get_mut(*id1).unwrap();
-
                                         let d_p = overlap / centre_dist * c1c2;
                                         let half_dist = d_p / 1.9;
 
@@ -508,7 +517,7 @@ impl World {
 
                                 let overlap = b_collides_s(b_ref, s_ref);
                                 if overlap && !s_ref.heard {
-                                    b.unwrap().inputs.push(s_ref.speechlet);
+                                    b.unwrap().speechlet_inputs.push(s_ref.speechlet.clone());
                                     self.speechlet_deaths.push((*s_id, s_ref.pos));
                                     s.unwrap().heard = true;
                                 }
