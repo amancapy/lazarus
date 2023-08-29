@@ -18,7 +18,6 @@ use std::{env, f32::consts::PI, path::PathBuf};
 
 #[rustfmt::skip]
 mod consts {
-    use std::f32::INFINITY;
 
     pub const W_SIZE:                                 usize = 1000;
     pub const N_CELLS:                                usize = 250;
@@ -26,9 +25,10 @@ mod consts {
     pub const W_FLOAT:                                  f32 = W_SIZE as f32;
     pub const W_USIZE:                                  u32 = W_SIZE as u32;
 
+    
     pub const B_FOV:                                  isize = 5;
 
-    pub const VISION_SAMPLE_MULTIPLE: usize = 1;
+    pub const VISION_SAMPLE_MULTIPLE:                 usize = 1;                           // to be deprd
 
     pub const B_SPEED:                                  f32 = 1.;
     pub const S_SPEED:                                  f32 = 2.;
@@ -162,6 +162,10 @@ pub struct Being {
     pos_update: Vec2,
     energy_update: f32,
     rotation_update: f32,
+
+    being_inputs: Vec<Vec<f32>>,
+    food_obstruct_inputs: Vec<Vec<f32>>,
+    output: Vec<f32>
 }
 
 pub struct Obstruct {
@@ -298,6 +302,10 @@ impl World {
             pos_update: Vec2::new(0., 0.),
             energy_update: 0.,
             rotation_update: 0.,
+
+            being_inputs: vec![],
+            food_obstruct_inputs: vec![],
+            output: vec![],
         };
 
         let k = self.beings.insert(being);
@@ -796,7 +804,7 @@ pub fn run() -> GameResult {
             ..Default::default()
         })
         .window_setup(WindowSetup {
-            title: String::from("langlands"),
+            title: String::from("neuralang"),
             vsync: false,
             samples: NumSamples::One,
             srgb: false,
@@ -817,7 +825,7 @@ pub fn gauge() {
     loop {
         w.step(1);
         if w.age % 60 == 0 {
-            println!("{}", w.age);
+            println!("{} {}", w.age, w.beings.len());
         }
     }
 }
