@@ -22,6 +22,7 @@ mod consts {
     pub const W_SIZE:                                 usize = 1000;
     pub const N_CELLS:                                usize = 250;
     pub const CELL_SIZE:                              usize = W_SIZE / N_CELLS;
+    pub const CELL_SIZE_FLOAT:                          f32 = CELL_SIZE as f32;
     pub const W_FLOAT:                                  f32 = W_SIZE as f32;
     pub const W_USIZE:                                  u32 = W_SIZE as u32;
 
@@ -125,35 +126,31 @@ pub fn b_collides_b(b1: &Being, b2: &Being) -> (f32, f32, Vec2, Vec<f32>) {
     let (r1, r2) = (b1.radius, b2.radius);
 
     let mut rel_vec = b2.clan.clone();
-    rel_vec.push(b1.rotation - b2.rotation);
-    rel_vec.push(centre_dist);
-    rel_vec.push(b2.energy);
-    rel_vec.push(b2.pos[0]);
-    rel_vec.push(b2.pos[1]);
+    rel_vec.append(&mut vec![b1.pos.angle_between(b2.pos) / PI, centre_dist, b2.energy /  B_START_ENERGY]);
 
     (r1 + r2 - centre_dist, centre_dist, c1c2, rel_vec)
 }
 
-pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2) {
+pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2, Vec<f32>) {
     let c1c2 = o.pos - b.pos;
     let centre_dist = c1c2.length();
     let (r1, r2) = (b.radius, O_RADIUS);
 
-    (r1 + r2 - centre_dist, centre_dist, c1c2)
+    (r1 + r2 - centre_dist, centre_dist, c1c2, vec![0., b.pos.angle_between(o.pos) / PI, o.age / O_START_HEALTH])
 }
 
-pub fn b_collides_f(b: &Being, f: &Food) -> bool {
+pub fn b_collides_f(b: &Being, f: &Food) -> (f32, Vec<f32>) {
     let centre_dist = b.pos.distance(f.pos);
     let (r1, r2) = (b.radius, 1.);
-    r1 + r2 - centre_dist > 0.
+    (r1 + r2 - centre_dist, vec![1., centre_dist, b.pos.angle_between(f.pos) / PI, f.age / F_START_AGE])
 }
 
-pub fn b_collides_s(b: &Being, s: &Speechlet) -> bool {
+pub fn b_collides_s(b: &Being, s: &Speechlet) -> (f32, Vec<f32>) {
     let c1c2 = s.pos - b.pos;
     let centre_dist = c1c2.length();
     let (r1, r2) = (b.radius, S_RADIUS);
 
-    r1 + r2 - centre_dist > 0.
+    (r1 + r2 - centre_dist, vec![centre_dist, b.pos.angle_between(s.pos), s.age].append(&mut s.speechlet.clone()))
 }
 
 #[derive(Debug)]
@@ -474,7 +471,8 @@ impl World {
                                 let b = self.beings.get_mut(*id1).unwrap();
                                 let o = self.obstructs.get_mut(*ob_id).unwrap();
 
-                                let (overlap, centre_dist, c1c2) = b_collides_o(b, o);
+                                let (overlap, centre_dist, c1c2, rel_vec) = b_collides_o(b, o);
+                                b.food_obstruct_inputs.push(rel_vec);
                                 if overlap > 0. {
                                     let d_p = overlap / centre_dist * c1c2;
                                     let half_dist = d_p / 1.9;
