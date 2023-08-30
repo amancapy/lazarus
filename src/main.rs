@@ -758,6 +758,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                         .dest(xy)
                         .offset(Vec2::new(200., 200.))
                         .rotation(b.rotation)
+                        .color(Color::new(1., 1., 1., b.energy / B_START_ENERGY))
                 }));
 
             self.obstruct_instances
@@ -766,6 +767,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                     DrawParam::new()
                         .dest(xy.clone())
                         .scale(Vec2::new(1., 1.) / 800. * 2. * O_RADIUS)
+                        .color(Color::new(1., 1., 1., o.age / O_START_HEALTH))
                 }));
 
             self.food_instances
@@ -774,6 +776,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                     DrawParam::new()
                         .dest(xy.clone())
                         .scale(Vec2::new(1., 1.) / 2048. * 2. * F_RADIUS)
+                        .color(Color::new(1., 1., 1., f.val / F_VAL))
                 }));
 
             self.speechlet_instances
@@ -784,6 +787,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
                         .dest(xy)
                         .offset(Vec2::new(256., 256.))
                         .rotation(s.rotation)
+                        .color(Color::new(1., 1., 1., s.age / S_START_AGE))
                 }));
 
             let param = DrawParam::new();
