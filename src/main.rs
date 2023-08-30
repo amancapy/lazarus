@@ -32,7 +32,7 @@ mod consts {
 
     pub const VISION_SAMPLE_MULTIPLE:                 usize = 1;                    // to be deprd
 
-    pub const B_SPEED:                                  f32 = 1.;
+    pub const B_SPEED:                                  f32 = 0.1;
     pub const S_SPEED:                                  f32 = 2.;
 
     pub const B_RADIUS:                                 f32 = 3.5;
@@ -168,10 +168,10 @@ pub struct Being {
     energy_update: f32,
     rotation_update: f32,
 
-    being_inputs: Vec<Vec<f32>>,
-    food_obstruct_inputs: Vec<Vec<f32>>,
-    speechlet_inputs: Vec<Vec<f32>>,
-    heard_speechlet_inputs: Vec<Vec<f32>>,
+    being_inputs: Box<Vec<Vec<f32>>>,
+    food_obstruct_inputs: Box<Vec<Vec<f32>>>,
+    speechlet_inputs: Box<Vec<Vec<f32>>>,
+    heard_speechlet_inputs: Box<Vec<Vec<f32>>>,
 
     output: Vec<f32>
 }
@@ -311,10 +311,10 @@ impl World {
             energy_update: 0.,
             rotation_update: 0.,
 
-            being_inputs: vec![],
-            food_obstruct_inputs: vec![],
-            speechlet_inputs: vec![],
-            heard_speechlet_inputs: vec![],
+            being_inputs: Box::new(vec![]),
+            food_obstruct_inputs: Box::new(vec![]),
+            speechlet_inputs: Box::new(vec![]),
+            heard_speechlet_inputs: Box::new(vec![]),
 
             output: vec![],
         };
@@ -851,6 +851,6 @@ pub fn main() {
     assert!(W_SIZE % N_CELLS == 0);
     assert!(B_RADIUS < CELL_SIZE as f32);
 
-    gauge();
-    // run();
+    // gauge();
+    run();
 }
