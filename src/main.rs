@@ -30,15 +30,14 @@ mod consts {
 
     pub const B_FOV:                                  isize = 5;
 
-    pub const VISION_SAMPLE_MULTIPLE:                 usize = 1;                    // to be deprd
-
     pub const B_SPEED:                                  f32 = 0.1;
-    pub const S_SPEED:                                  f32 = 2.;
 
     pub const B_RADIUS:                                 f32 = 3.5;
     pub const O_RADIUS:                                 f32 = 3.;
     pub const F_RADIUS:                                 f32 = 2.5;
     pub const S_RADIUS:                                 f32 = 1.5;
+
+    pub const S_GROW_RATE:                              f32 = 1.;
 
     pub const B_DEATH_ENERGY:                           f32 = 0.5;
     pub const B_SCATTER_RADIUS:                         f32 = 10.;
@@ -55,7 +54,7 @@ mod consts {
     pub const B_TIRE_RATE:                              f32 = 0.001;
     pub const O_AGE_RATE:                               f32 = 0.001;
     pub const F_AGE_RATE:                               f32 = 0.001;
-    pub const S_SOFTEN_RATE:                            f32 = 0.005;
+    pub const S_SOFTEN_RATE:                            f32 = 0.1;
 
     pub const B_HEADON_DAMAGE:                          f32 = 0.25;
     pub const B_REAR_DAMAGE:                            f32 = 1.;
@@ -126,7 +125,11 @@ pub fn b_collides_b(b1: &Being, b2: &Being) -> (f32, f32, Vec2, Vec<f32>) {
     let (r1, r2) = (b1.radius, b2.radius);
 
     let mut rel_vec = b2.clan.clone();
-    rel_vec.append(&mut vec![b1.pos.angle_between(b2.pos) / PI, centre_dist, b2.energy /  B_START_ENERGY]);
+    rel_vec.append(&mut vec![
+        b1.pos.angle_between(b2.pos) / PI,
+        centre_dist,
+        b2.energy / B_START_ENERGY,
+    ]);
 
     (r1 + r2 - centre_dist, centre_dist, c1c2, rel_vec)
 }
@@ -136,13 +139,26 @@ pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2, Vec<f32>) {
     let centre_dist = c1c2.length();
     let (r1, r2) = (b.radius, O_RADIUS);
 
-    (r1 + r2 - centre_dist, centre_dist, c1c2, vec![0., b.pos.angle_between(o.pos) / PI, o.age / O_START_HEALTH])
+    (
+        r1 + r2 - centre_dist,
+        centre_dist,
+        c1c2,
+        vec![0., b.pos.angle_between(o.pos) / PI, o.age / O_START_HEALTH],
+    )
 }
 
 pub fn b_collides_f(b: &Being, f: &Food) -> (f32, Vec<f32>) {
     let centre_dist = b.pos.distance(f.pos);
     let (r1, r2) = (b.radius, 1.);
-    (r1 + r2 - centre_dist, vec![1., centre_dist, b.pos.angle_between(f.pos) / PI, f.age / F_START_AGE])
+    (
+        r1 + r2 - centre_dist,
+        vec![
+            1.,
+            centre_dist,
+            b.pos.angle_between(f.pos) / PI,
+            f.age / F_START_AGE,
+        ],
+    )
 }
 
 pub fn b_collides_s(b: &Being, s: &Speechlet) -> (f32, Vec<f32>) {
@@ -150,7 +166,14 @@ pub fn b_collides_s(b: &Being, s: &Speechlet) -> (f32, Vec<f32>) {
     let centre_dist = c1c2.length();
     let (r1, r2) = (b.radius, S_RADIUS);
 
-    (r1 + r2 - centre_dist, vec![centre_dist, b.pos.angle_between(s.pos) / PI, s.age / S_START_AGE])
+    (
+        r1 + r2 - centre_dist,
+        vec![
+            centre_dist,
+            b.pos.angle_between(s.pos) / PI,
+            s.age / S_START_AGE,
+        ],
+    )
 }
 
 #[derive(Debug)]
@@ -173,7 +196,7 @@ pub struct Being {
     speechlet_inputs: Box<Vec<Vec<f32>>>,
     heard_speechlet_inputs: Box<Vec<Vec<f32>>>,
 
-    output: Vec<f32>
+    output: Vec<f32>,
 }
 
 pub struct Obstruct {
@@ -194,12 +217,9 @@ pub struct Food {
 #[derive(Debug)]
 pub struct Speechlet {
     speechlet: Vec<f32>,
-    rotation: f32,
     pos: Vec2,
+    radius: f32,
     age: f32,
-    heard: bool,
-
-    pos_update: Vec2,
 }
 
 pub struct World {
@@ -248,13 +268,10 @@ impl World {
             obstruct_deaths: vec![],
             speechlet_deaths: vec![],
 
-            fov_indices: (-B_FOV..=B_FOV).flat_map(|i| {
-                (-B_FOV..=B_FOV).map(move |j| {
-                    (i, j)
-                })
-            }).filter(|(i, j)| {
-                i.pow(2) + j.pow(2) <= B_FOV.pow(2)
-            }).collect(),
+            fov_indices: (-B_FOV..=B_FOV)
+                .flat_map(|i| (-B_FOV..=B_FOV).map(move |j| (i, j)))
+                .filter(|(i, j)| i.pow(2) + j.pow(2) <= B_FOV.pow(2))
+                .collect(),
             age: 0,
         }
     }
@@ -273,7 +290,7 @@ impl World {
                 ),
                 rng.gen_range(-PI..PI),
                 B_START_ENERGY,
-                vec![0., 0., 0., 1.]
+                vec![0., 0., 0., 1.],
             );
         }
 
@@ -285,16 +302,26 @@ impl World {
         }
 
         for i in 0..2000 {
-            world.add_food(Vec2::new(
-                rng.gen_range(1.0..W_FLOAT - 1.),
-                rng.gen_range(1.0..W_FLOAT - 1.),
-            ), F_VAL);
+            world.add_food(
+                Vec2::new(
+                    rng.gen_range(1.0..W_FLOAT - 1.),
+                    rng.gen_range(1.0..W_FLOAT - 1.),
+                ),
+                F_VAL,
+            );
         }
 
         world
     }
 
-    pub fn add_being(&mut self, radius: f32, pos: Vec2, rotation: f32, health: f32, clan: Vec<f32>) {
+    pub fn add_being(
+        &mut self,
+        radius: f32,
+        pos: Vec2,
+        rotation: f32,
+        health: f32,
+        clan: Vec<f32>,
+    ) {
         let (i, j) = pos_to_cell(pos);
 
         let being = Being {
@@ -360,18 +387,14 @@ impl World {
         self.food_id += 1;
     }
 
-    pub fn add_speechlet(&mut self, speechlet: Vec<f32>, pos: Vec2, rotation: f32) {
+    pub fn add_speechlet(&mut self, speechlet: Vec<f32>, pos: Vec2) {
         let (i, j) = pos_to_cell(pos);
 
         let speechlet = Speechlet {
             speechlet: speechlet,
-            rotation: rotation,
             pos: pos,
+            radius: S_RADIUS,
             age: S_START_AGE,
-
-            pos_update: Vec2::new(0., 0.),
-
-            heard: false,
         };
 
         let k = self.speechlets.insert(speechlet);
@@ -400,19 +423,10 @@ impl World {
         }
     }
 
-    pub fn move_speechlets(&mut self) {
+    pub fn grow_speechlets(&mut self) {
         self.speechlets.iter_mut().for_each(|(k, s)| {
-            let move_vec = dir_from_theta(s.rotation) * S_SPEED;
-            let newij = s.pos + move_vec;
-
-            let mut rng = thread_rng();
-
-            if !oob(newij, S_RADIUS) {
-                s.pos_update = move_vec;
-            } else {
-                self.speechlet_deaths.push((k, s.pos));
-            }
-        })
+            s.radius += S_RADIUS;
+        });
     }
 
     pub fn check_collisions(&mut self, substeps: usize) {
@@ -425,7 +439,6 @@ impl World {
                 let ij = two_to_one((i, j));
 
                 for id1 in &self.being_cells[ij] {
-
                     for (di, dj) in &self.fov_indices {
                         let (ni, nj) = ((i as isize) + di, (j as isize) + dj);
 
@@ -501,7 +514,7 @@ impl World {
                                 let (overlap, rel_vec) = b_collides_f(&b, f_ref);
                                 b.food_obstruct_inputs.push(rel_vec);
 
-                                if overlap > 0. && !f_ref.eaten &&b.energy <= B_START_ENERGY {
+                                if overlap > 0. && !f_ref.eaten && b.energy <= B_START_ENERGY {
                                     b.energy_update += f_ref.val;
                                     self.food_deaths.push((*f_id, f_ref.pos));
                                     f.unwrap().eaten = true;
@@ -517,10 +530,9 @@ impl World {
                                 let (overlap, rel_vec) = b_collides_s(&b, s_ref);
                                 b.speechlet_inputs.push(rel_vec);
 
-                                if overlap > 0. && !s_ref.heard {
+                                if overlap > 0. {
                                     b.heard_speechlet_inputs.push(s_ref.speechlet.clone());
                                     self.speechlet_deaths.push((*s_id, s_ref.pos));
-                                    s.unwrap().heard = true;
                                 }
                             }
                         }
@@ -664,7 +676,7 @@ impl World {
         }
 
         self.perform_being_outputs();
-        self.move_speechlets();
+        self.grow_speechlets();
         self.tire_beings();
         self.age_foods();
         self.age_obstructs();
@@ -733,7 +745,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
         self.step += 1;
 
-        if self.step % VISION_SAMPLE_MULTIPLE == 0 {
+        if self.step % 60 == 0 {
             // let frame = ctx.gfx.frame().to_pixels(&ctx.gfx).unwrap();
             // let fovs = get_fovs(frame, &self.world.beings);
 
@@ -742,66 +754,62 @@ impl event::EventHandler<ggez::GameError> for MainState {
             println!("timestep: {}, fps: {}", self.world.age, ctx.time.fps(),);
         }
 
+        self.world.add_speechlet(vec![], Vec2 { x: 500., y: 500. });
         self.world.step(1);
         Ok(())
     }
 
     fn draw(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
-        if self.step % VISION_SAMPLE_MULTIPLE == 0 {
-            let mut canvas = Canvas::from_frame(ctx, Color::BLACK);
+        let mut canvas = Canvas::from_frame(ctx, Color::BLACK);
 
-            self.being_instances
-                .set(self.world.beings.iter().map(|(_, b)| {
-                    let xy = b.pos;
-                    DrawParam::new()
-                        .scale(Vec2::new(1., 1.) / 400. * 2. * B_RADIUS)
-                        .dest(xy)
-                        .offset(Vec2::new(200., 200.))
-                        .rotation(b.rotation)
-                        .color(Color::new(1., 1., 1., b.energy / B_START_ENERGY))
-                }));
+        self.being_instances
+            .set(self.world.beings.iter().map(|(_, b)| {
+                let xy = b.pos;
+                DrawParam::new()
+                    .scale(Vec2::new(1., 1.) / 400. * 2. * B_RADIUS)
+                    .dest(xy)
+                    .offset(Vec2::new(200., 200.))
+                    .rotation(b.rotation)
+                    .color(Color::new(1., 1., 1., b.energy / B_START_ENERGY))
+            }));
 
-            self.obstruct_instances
-                .set(self.world.obstructs.iter().map(|(_, o)| {
-                    let xy = o.pos;
-                    DrawParam::new()
-                        .dest(xy.clone())
-                        .scale(Vec2::new(1., 1.) / 800. * 2. * O_RADIUS)
-                        .color(Color::new(1., 1., 1., o.age / O_START_HEALTH))
-                }));
+        self.obstruct_instances
+            .set(self.world.obstructs.iter().map(|(_, o)| {
+                let xy = o.pos;
+                DrawParam::new()
+                    .dest(xy.clone())
+                    .scale(Vec2::new(1., 1.) / 800. * 2. * O_RADIUS)
+                    .color(Color::new(1., 1., 1., o.age / O_START_HEALTH))
+            }));
 
-            self.food_instances
-                .set(self.world.foods.iter().map(|(_, f)| {
-                    let xy = f.pos - Vec2::new(F_RADIUS, F_RADIUS);
-                    DrawParam::new()
-                        .dest(xy.clone())
-                        .scale(Vec2::new(1., 1.) / 2048. * 2. * F_RADIUS)
-                        .color(Color::new(1., 1., 1., f.val / F_VAL))
-                }));
+        self.food_instances
+            .set(self.world.foods.iter().map(|(_, f)| {
+                let xy = f.pos - Vec2::new(F_RADIUS, F_RADIUS);
+                DrawParam::new()
+                    .dest(xy.clone())
+                    .scale(Vec2::new(1., 1.) / 2048. * 2. * F_RADIUS)
+                    .color(Color::new(1., 1., 1., f.val / F_VAL))
+            }));
 
-            self.speechlet_instances
-                .set(self.world.speechlets.iter().map(|(_, s)| {
-                    let xy = s.pos;
-                    DrawParam::new()
-                        .scale(Vec2::new(1., 1.) / 512. * S_RADIUS)
-                        .dest(xy)
-                        .offset(Vec2::new(256., 256.))
-                        .rotation(s.rotation)
-                        .color(Color::new(1., 1., 1., s.age / S_START_AGE))
-                }));
+        self.speechlet_instances
+            .set(self.world.speechlets.iter().map(|(_, s)| {
+                let xy = s.pos;
+                DrawParam::new()
+                    .scale(Vec2::new(1., 1.) / 512. * s.radius)
+                    .dest(xy)
+                    .offset(Vec2::new(256., 256.))
+                    .color(Color::new(1., 1., 1., s.age / S_START_AGE))
+            }));
 
-            let param = DrawParam::new();
-            canvas.draw(&self.being_instances, param);
-            canvas.draw(&self.obstruct_instances, param);
-            canvas.draw(&self.food_instances, param);
-            canvas.draw(&self.speechlet_instances, param);
+        let param = DrawParam::new();
+        canvas.draw(&self.being_instances, param);
+        canvas.draw(&self.obstruct_instances, param);
+        canvas.draw(&self.food_instances, param);
+        canvas.draw(&self.speechlet_instances, param);
 
-            let a = canvas.finish(ctx);
+        let a = canvas.finish(ctx);
 
-            a
-        } else {
-            Ok(())
-        }
+        a
     }
 }
 
@@ -845,6 +853,7 @@ pub fn gauge() {
     // println!("{:?}", w.fov_indices.len());
     loop {
         w.step(1);
+
         if w.age % 3600 == 0 {
             println!("{} {}", w.age / 3600, w.beings.len());
         }
