@@ -178,7 +178,7 @@ pub struct Being {
     clan: Vec<f32>,
 
     cell: (usize, usize),
-    id: usize, // vestigial, may stick around
+    id: usize,
 
     pos_update: Vec2,
     energy_update: f32,
@@ -187,7 +187,6 @@ pub struct Being {
     being_inputs: Box<Vec<Vec<f32>>>,
     food_obstruct_inputs: Box<Vec<Vec<f32>>>,
     heard_speechlet_inputs: Box<Vec<Vec<f32>>>,
-    heard_speechlet_ids: Vec<usize>,
 
     output: Vec<f32>,
 }
@@ -214,7 +213,7 @@ pub struct Speechlet {
     radius: f32,
     age: f32,
 
-    id: usize,
+    recepient_being_ids: Vec<usize>,
 }
 
 pub struct World {
@@ -239,8 +238,6 @@ pub struct World {
 
     fov_indices: Vec<(isize, isize)>,
     age: usize,
-
-    speechlet_id_increment: usize,
 }
 
 impl World {
@@ -270,8 +267,6 @@ impl World {
                 .filter(|(i, j)| i.pow(2) + j.pow(2) <= B_FOV.pow(2))
                 .collect(),
             age: 0,
-
-            speechlet_id_increment: 0,
         }
     }
 
@@ -340,7 +335,6 @@ impl World {
             being_inputs: Box::new(vec![]),
             food_obstruct_inputs: Box::new(vec![]),
             heard_speechlet_inputs: Box::new(vec![]),
-            heard_speechlet_ids: vec![],
 
             output: vec![],
         };
@@ -348,6 +342,7 @@ impl World {
         let k = self.beings.insert(being);
         let ij = two_to_one((i, j));
         self.being_cells[ij].push(k);
+
         self.being_id += 1;
     }
 
@@ -395,14 +390,12 @@ impl World {
             radius: S_RADIUS,
             age: S_START_AGE,
 
-            id: self.speechlet_id_increment,
+            recepient_being_ids: vec![]
         };
 
         let k = self.speechlets.insert(speechlet);
         let ij = two_to_one((i, j));
         self.speechlet_cells[ij].push(k);
-
-        self.speechlet_id_increment += 1;
     }
 
     pub fn move_beings(&mut self, substeps: usize) {
@@ -526,15 +519,13 @@ impl World {
 
                             for s_id in &self.speechlet_cells[nij] {
                                 let b = self.beings.get_mut(*id1).unwrap();
-                                let s = self.speechlets.get_mut(*s_id);
+                                let s = self.speechlets.get_mut(*s_id).unwrap();
 
-                                let s_ref = s.as_ref().unwrap();
+                                let overlap = b_collides_s(&b, &s);
 
-                                let overlap = b_collides_s(&b, s_ref);
-
-                                if overlap > 0. && !b.heard_speechlet_ids.contains(&s_ref.id) {
-                                    b.heard_speechlet_inputs.push(s_ref.speechlet.clone());
-                                    b.heard_speechlet_ids.push(s_ref.id);
+                                if overlap > 0. && !s.recepient_being_ids.contains(&b.id) {
+                                    b.heard_speechlet_inputs.push(s.speechlet.clone());
+                                    s.recepient_being_ids.push(b.id);
                                 }
                             }
                         }
