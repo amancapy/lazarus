@@ -161,19 +161,12 @@ pub fn b_collides_f(b: &Being, f: &Food) -> (f32, Vec<f32>) {
     )
 }
 
-pub fn b_collides_s(b: &Being, s: &Speechlet) -> (f32, Vec<f32>) {
+pub fn b_collides_s(b: &Being, s: &Speechlet) -> f32 {
     let c1c2 = s.pos - b.pos;
     let centre_dist = c1c2.length();
     let (r1, r2) = (b.radius, S_RADIUS);
 
-    (
-        r1 + r2 - centre_dist,
-        vec![
-            centre_dist,
-            b.pos.angle_between(s.pos) / PI,
-            s.age / S_START_AGE,
-        ],
-    )
+    r1 + r2 - centre_dist
 }
 
 #[derive(Debug)]
@@ -193,8 +186,8 @@ pub struct Being {
 
     being_inputs: Box<Vec<Vec<f32>>>,
     food_obstruct_inputs: Box<Vec<Vec<f32>>>,
-    speechlet_inputs: Box<Vec<Vec<f32>>>,
     heard_speechlet_inputs: Box<Vec<Vec<f32>>>,
+    heard_speechlet_ids: Vec<usize>,
 
     output: Vec<f32>,
 }
@@ -220,6 +213,8 @@ pub struct Speechlet {
     pos: Vec2,
     radius: f32,
     age: f32,
+
+    id: usize,
 }
 
 pub struct World {
@@ -244,6 +239,8 @@ pub struct World {
 
     fov_indices: Vec<(isize, isize)>,
     age: usize,
+
+    speechlet_id_increment: usize,
 }
 
 impl World {
@@ -273,6 +270,8 @@ impl World {
                 .filter(|(i, j)| i.pow(2) + j.pow(2) <= B_FOV.pow(2))
                 .collect(),
             age: 0,
+
+            speechlet_id_increment: 0,
         }
     }
 
@@ -340,8 +339,8 @@ impl World {
 
             being_inputs: Box::new(vec![]),
             food_obstruct_inputs: Box::new(vec![]),
-            speechlet_inputs: Box::new(vec![]),
             heard_speechlet_inputs: Box::new(vec![]),
+            heard_speechlet_ids: vec![],
 
             output: vec![],
         };
@@ -357,7 +356,7 @@ impl World {
 
         let obstruct = Obstruct {
             pos: pos,
-            age: 5.,
+            age: O_START_HEALTH,
             id: self.ob_id,
         };
 
@@ -395,11 +394,15 @@ impl World {
             pos: pos,
             radius: S_RADIUS,
             age: S_START_AGE,
+
+            id: self.speechlet_id_increment,
         };
 
         let k = self.speechlets.insert(speechlet);
         let ij = two_to_one((i, j));
         self.speechlet_cells[ij].push(k);
+
+        self.speechlet_id_increment += 1;
     }
 
     pub fn move_beings(&mut self, substeps: usize) {
@@ -527,12 +530,11 @@ impl World {
 
                                 let s_ref = s.as_ref().unwrap();
 
-                                let (overlap, rel_vec) = b_collides_s(&b, s_ref);
-                                b.speechlet_inputs.push(rel_vec);
+                                let overlap = b_collides_s(&b, s_ref);
 
-                                if overlap > 0. {
+                                if overlap > 0. && !b.heard_speechlet_ids.contains(&s_ref.id) {
                                     b.heard_speechlet_inputs.push(s_ref.speechlet.clone());
-                                    self.speechlet_deaths.push((*s_id, s_ref.pos));
+                                    b.heard_speechlet_ids.push(s_ref.id);
                                 }
                             }
                         }
@@ -641,7 +643,7 @@ impl World {
         for (k, s) in &mut self.speechlets {
             s.age -= S_SOFTEN_RATE;
 
-            if s.age < 0.05 {
+            if s.age <= 0. {
                 self.speechlet_deaths.push((k, s.pos));
             }
         }
@@ -693,7 +695,6 @@ struct MainState {
     food_instances: InstanceArray,
     speechlet_instances: InstanceArray,
     world: World,
-    step: usize,
 }
 
 impl MainState {
@@ -714,7 +715,6 @@ impl MainState {
             food_instances: food_instances,
             speechlet_instances: speechlet_instances,
             world: w,
-            step: 0,
         })
     }
 }
@@ -743,24 +743,51 @@ impl MainState {
 
 impl event::EventHandler<ggez::GameError> for MainState {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
-        self.step += 1;
 
-        if self.step % 60 == 0 {
+        if self.world.age % 60 == 0 {
             // let frame = ctx.gfx.frame().to_pixels(&ctx.gfx).unwrap();
             // let fovs = get_fovs(frame, &self.world.beings);
 
             // forward pass on each being
             // update being actions
             println!("timestep: {}, fps: {}", self.world.age, ctx.time.fps(),);
+            self.world.add_speechlet(vec![], Vec2 { x: thread_rng().gen_range(0.0..W_FLOAT), y: thread_rng().gen_range(0.0..W_FLOAT) });
         }
 
-        self.world.add_speechlet(vec![], Vec2 { x: 500., y: 500. });
         self.world.step(1);
         Ok(())
     }
 
     fn draw(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
         let mut canvas = Canvas::from_frame(ctx, Color::BLACK);
+
+        self.speechlet_instances
+            .set(self.world.speechlets.iter().map(|(_, s)| {
+                let xy = s.pos;
+                DrawParam::new()
+                    .scale(Vec2::new(1., 1.) / 512. * s.radius)
+                    .dest(xy)
+                    .offset(Vec2::new(256., 256.))
+                    .color(Color::new(1., 1., 1., s.age / S_START_AGE))
+            }));
+
+        self.food_instances
+            .set(self.world.foods.iter().map(|(_, f)| {
+                let xy = f.pos - Vec2::new(F_RADIUS, F_RADIUS);
+                DrawParam::new()
+                    .dest(xy.clone())
+                    .scale(Vec2::new(1., 1.) / 2048. * 2. * F_RADIUS)
+                    .color(Color::new(1., 1., 1., f.val / F_VAL))
+            }));
+
+        self.obstruct_instances
+            .set(self.world.obstructs.iter().map(|(_, o)| {
+                let xy = o.pos;
+                DrawParam::new()
+                    .dest(xy.clone())
+                    .scale(Vec2::new(1., 1.) / 800. * 2. * O_RADIUS)
+                    .color(Color::new(1., 1., 1., o.age / O_START_HEALTH))
+            }));
 
         self.being_instances
             .set(self.world.beings.iter().map(|(_, b)| {
@@ -773,39 +800,11 @@ impl event::EventHandler<ggez::GameError> for MainState {
                     .color(Color::new(1., 1., 1., b.energy / B_START_ENERGY))
             }));
 
-        self.obstruct_instances
-            .set(self.world.obstructs.iter().map(|(_, o)| {
-                let xy = o.pos;
-                DrawParam::new()
-                    .dest(xy.clone())
-                    .scale(Vec2::new(1., 1.) / 800. * 2. * O_RADIUS)
-                    .color(Color::new(1., 1., 1., o.age / O_START_HEALTH))
-            }));
-
-        self.food_instances
-            .set(self.world.foods.iter().map(|(_, f)| {
-                let xy = f.pos - Vec2::new(F_RADIUS, F_RADIUS);
-                DrawParam::new()
-                    .dest(xy.clone())
-                    .scale(Vec2::new(1., 1.) / 2048. * 2. * F_RADIUS)
-                    .color(Color::new(1., 1., 1., f.val / F_VAL))
-            }));
-
-        self.speechlet_instances
-            .set(self.world.speechlets.iter().map(|(_, s)| {
-                let xy = s.pos;
-                DrawParam::new()
-                    .scale(Vec2::new(1., 1.) / 512. * s.radius)
-                    .dest(xy)
-                    .offset(Vec2::new(256., 256.))
-                    .color(Color::new(1., 1., 1., s.age / S_START_AGE))
-            }));
-
         let param = DrawParam::new();
-        canvas.draw(&self.being_instances, param);
-        canvas.draw(&self.obstruct_instances, param);
-        canvas.draw(&self.food_instances, param);
         canvas.draw(&self.speechlet_instances, param);
+        canvas.draw(&self.food_instances, param);
+        canvas.draw(&self.obstruct_instances, param);
+        canvas.draw(&self.being_instances, param);
 
         let a = canvas.finish(ctx);
 
@@ -854,8 +853,9 @@ pub fn gauge() {
     loop {
         w.step(1);
 
-        if w.age % 3600 == 0 {
-            println!("{} {}", w.age / 3600, w.beings.len());
+        if w.age % 60 == 0 {
+            println!("{} {}", w.age / 60, w.beings.len());
+            w.add_speechlet(vec![], Vec2 { x: thread_rng().gen_range(0.0..W_FLOAT), y: thread_rng().gen_range(0.0..W_FLOAT) });
         }
     }
 }
