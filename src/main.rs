@@ -18,6 +18,7 @@ use std::{env, f32::consts::PI, path::PathBuf, process::id};
 
 #[rustfmt::skip]
 mod consts {
+    use std::f32::INFINITY;
 
     pub const W_SIZE:                                 usize = 1000;
     pub const N_CELLS:                                usize = 250;
@@ -28,7 +29,7 @@ mod consts {
 
     pub const N_CLANS:                                usize = 4;
 
-    pub const B_FOV:                                  isize = 5;
+    pub const B_FOV:                                  isize = 10;
 
     pub const B_SPEED:                                  f32 = 0.1;
 
@@ -45,7 +46,7 @@ mod consts {
 
     pub const BASE_ANG_SPEED_DEGREES:                   f32 = 10.;
 
-    pub const B_START_ENERGY:                           f32 = 10.;
+    pub const B_START_ENERGY:                           f32 = 100.;
     pub const O_START_HEALTH:                           f32 = 25.;
     pub const F_START_AGE:                              f32 = 5.;
     pub const S_START_AGE:                              f32 = 5.;
@@ -127,7 +128,7 @@ pub fn b_collides_b(b1: &Being, b2: &Being) -> (f32, f32, Vec2, Vec<f32>) {
     let mut rel_vec = b2.clan.clone();
     rel_vec.append(&mut vec![
         b1.pos.angle_between(b2.pos) / PI,
-        centre_dist,
+        centre_dist / B_FOV as f32,
         b2.energy / B_START_ENERGY,
     ]);
 
@@ -141,7 +142,7 @@ pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2, Vec<f32>) {
 
     (
         r1 + r2 - centre_dist,
-        centre_dist,
+        centre_dist / B_FOV as f32,
         c1c2,
         vec![0., b.pos.angle_between(o.pos) / PI, o.age / O_START_HEALTH],
     )
@@ -154,7 +155,7 @@ pub fn b_collides_f(b: &Being, f: &Food) -> (f32, Vec<f32>) {
         r1 + r2 - centre_dist,
         vec![
             1.,
-            centre_dist,
+            centre_dist / B_FOV as f32,
             b.pos.angle_between(f.pos) / PI,
             f.age / F_START_AGE,
         ],
@@ -186,7 +187,7 @@ pub struct Being {
 
     being_inputs: Box<Vec<Vec<f32>>>,
     food_obstruct_inputs: Box<Vec<Vec<f32>>>,
-    heard_speechlet_inputs: Box<Vec<Vec<f32>>>,
+    speechlet_inputs: Box<Vec<Vec<f32>>>,
 
     output: Vec<f32>,
 }
@@ -275,7 +276,7 @@ impl World {
         let mut world = World::new();
         let mut rng = thread_rng();
 
-        for i in 0..500 {
+        for i in 0..250 {
             world.add_being(
                 B_RADIUS,
                 Vec2::new(
@@ -334,7 +335,7 @@ impl World {
 
             being_inputs: Box::new(vec![]),
             food_obstruct_inputs: Box::new(vec![]),
-            heard_speechlet_inputs: Box::new(vec![]),
+            speechlet_inputs: Box::new(vec![]),
 
             output: vec![],
         };
@@ -524,7 +525,7 @@ impl World {
                                 let overlap = b_collides_s(&b, &s);
 
                                 if overlap > 0. && !s.recepient_being_ids.contains(&b.id) {
-                                    b.heard_speechlet_inputs.push(s.speechlet.clone());
+                                    b.speechlet_inputs.push(s.speechlet.clone());
                                     s.recepient_being_ids.push(b.id);
                                 }
                             }
@@ -656,8 +657,14 @@ impl World {
     }
 
     pub fn perform_being_outputs(&mut self) {
-        self.beings.iter().for_each(|(k, b)| {
+        self.beings.iter_mut().for_each(|(k, b)| {
             let output = b.output.clone();
+
+            // println!("{} {} {}", b.being_inputs.len(), b.food_obstruct_inputs.len(), b.speechlet_inputs.len());
+
+            b.being_inputs.clear();
+            b.food_obstruct_inputs.clear();
+            b.speechlet_inputs.clear();
         });
     }
 
@@ -855,6 +862,6 @@ pub fn main() {
     assert!(W_SIZE % N_CELLS == 0);
     assert!(B_RADIUS < CELL_SIZE as f32);
 
-    // gauge();
+    gauge();
     run();
 }
