@@ -185,9 +185,9 @@ pub struct Being {
     energy_update: f32,
     rotation_update: f32,
 
-    being_inputs: Box<Vec<Vec<f32>>>,
-    food_obstruct_inputs: Box<Vec<Vec<f32>>>,
-    speechlet_inputs: Box<Vec<Vec<f32>>>,
+    being_inputs: Vec<Vec<f32>>,
+    food_obstruct_inputs: Vec<Vec<f32>>,
+    speechlet_inputs: Vec<Vec<f32>>,
 
     output: Vec<f32>,
 }
@@ -333,9 +333,9 @@ impl World {
             energy_update: 0.,
             rotation_update: 0.,
 
-            being_inputs: Box::new(vec![]),
-            food_obstruct_inputs: Box::new(vec![]),
-            speechlet_inputs: Box::new(vec![]),
+            being_inputs: vec![],
+            food_obstruct_inputs: vec![],
+            speechlet_inputs: vec![],
 
             output: vec![],
         };
@@ -863,5 +863,5 @@ pub fn main() {
     assert!(B_RADIUS < CELL_SIZE as f32);
 
     gauge();
-    run();
+    // run();
 }
