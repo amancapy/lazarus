@@ -14,7 +14,7 @@ use slotmap::{DefaultKey, SlotMap};
 use std::{env, f32::consts::PI, path::PathBuf, process::id};
 
 // use anyhow::Result;
-// use tch::{nn, nn::ModuleT, nn::OptimizerConfig, Device, Tensor, Kind};
+use tch::{nn, nn::ModuleT, nn::OptimizerConfig, Device, Tensor, Kind};
 
 #[rustfmt::skip]
 mod consts {
