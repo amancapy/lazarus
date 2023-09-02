@@ -189,6 +189,8 @@ pub struct Being {
     food_obstruct_inputs: Vec<Vec<f32>>,
     speechlet_inputs: Vec<Vec<f32>>,
 
+    state: Vec<f32>,
+
     output: Vec<f32>,
 }
 
@@ -336,6 +338,8 @@ impl World {
             being_inputs: vec![],
             food_obstruct_inputs: vec![],
             speechlet_inputs: vec![],
+
+            state: vec![],
 
             output: vec![],
         };
@@ -862,6 +866,8 @@ pub fn main() {
     assert!(W_SIZE % N_CELLS == 0);
     assert!(B_RADIUS < CELL_SIZE as f32);
 
+    let d = Device::cuda_if_available();
+    println!("{:?}", d);
     gauge();
     // run();
 }
