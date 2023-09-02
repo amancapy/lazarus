@@ -17,7 +17,7 @@ use std::{env, f32::consts::PI, path::PathBuf, process::id};
 use tch::{nn, nn::ModuleT, nn::OptimizerConfig, Device, Tensor, Kind};
 
 #[rustfmt::skip]
-mod consts {
+pub mod consts {
     use std::f32::INFINITY;
 
     pub const W_SIZE:                                 usize = 1000;
