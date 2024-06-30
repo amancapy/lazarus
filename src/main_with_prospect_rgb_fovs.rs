@@ -13,7 +13,8 @@ use rand::{thread_rng, Rng};
 use slotmap::{DefaultKey, SlotMap};
 use std::{env, f32::consts::PI, path::PathBuf, process::id, time::{Duration, SystemTime}, thread::{sleep,}};
 
-use tch::{nn, nn::ModuleT, nn::OptimizerConfig, Device, Tensor, Kind};
+// use anyhow::Result;
+// use tch::{nn, nn::ModuleT, nn::OptimizerConfig, Device, Tensor, Kind};
 
 #[rustfmt::skip]
 pub mod consts {
@@ -723,9 +724,36 @@ impl MainState {
     }
 }
 
+// pub fn get_fovs(
+//     frame: Vec<u8>,
+//     beings: &SlotMap<DefaultKey, Being>,
+// ) -> Vec<ImageBuffer<Rgba<u8>, Vec<u8>>> {
+//     let frame = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(W_USIZE, W_USIZE, frame).expect("");
+
+//     beings
+//         .iter()
+//         .map(|(_, b)| {
+//             let xy = b.pos;
+//             let (x, y) = (xy[0] as u32, xy[1] as u32);
+
+//             let a = frame
+//                 .view(x - B_FOV as u32, y - B_FOV, 2 * B_FOV - 1, 2 * B_FOV + 1)
+//                 .to_image()
+//                 .clone();
+
+//             resize(&a, 13, 13, Gaussian)
+//         })
+//         .collect()
+// }
+
 impl event::EventHandler<ggez::GameError> for MainState {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
         if self.world.age % 60 == 0 {
+            // let frame = ctx.gfx.frame().to_pixels(&ctx.gfx).unwrap();
+            // let fovs = get_fovs(frame, &self.world.beings);
+
+            // forward pass on each being
+            // update being actions
             println!(
                 "timestep: {}, fps: {}, beings: {}, foods: {}",
                 self.world.age,
@@ -833,9 +861,11 @@ pub fn run() -> GameResult {
     event::run(ctx, event_loop, state)
 }
 
-// to let it rip without rendering, mainly to gauge overhead of rendering on top of step()
+// to let it rip without rendering, mainly to gauge overhead of rendering over step() itself
+
 pub fn gauge() {
     let mut w = World::standard_world();
+    // println!("{:?}", w.fov_indices.len());
     let now = SystemTime::now();
     loop {
         w.step(1);
@@ -861,8 +891,8 @@ pub fn main() {
     assert!(W_SIZE % N_CELLS == 0);
     assert!(B_RADIUS < CELL_SIZE as f32);
 
-    let d = Device::cuda_if_available();
-    println!("{:?}", d);
-    // gauge();
+    // let d = Device::cuda_if_available();
+    // println!("{:?}", d);
+    gauge();
     // run();
 }
