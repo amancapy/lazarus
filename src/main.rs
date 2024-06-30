@@ -864,5 +864,5 @@ pub fn main() {
     let d = Device::cuda_if_available();
     println!("{:?}", d);
     // gauge();
-    // run();
+    run();
 }
