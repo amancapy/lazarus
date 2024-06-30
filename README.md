@@ -1,6 +1,10 @@
 # neuralang
 
-overview/plan: small deepRL agents evolve to communicate with "sound". includes basic 2d physics with collision resolution built from scratch, rendered using the ggez library.
+overview/plan: small neural-network-controlled beings learn to communicate with "sound," through reinforcement learning or genetic algorithms. includes basic 2d physics built from scratch, rendered using the ggez library.
+
+![small](https://github.com/amancapy/neuralang/assets/111729660/4fbcaae1-da6e-418d-81fc-4f0f24a99cb9)
+
+---------------------------------
 
 current progress: I'm able to simulate upwards of 40k objects at 60Hz, on a single thread. Instead of using theads to optimize a single simulation, since the rendering happens to be thread-safe, I want to run multiple simulation worlds, one per thread. Maybe lineages could be transferred between worlds to accelerate evolution. My gpu isn't all that beefy, so I guess for now 1-2 will have to suffice.
 
