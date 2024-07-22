@@ -9,9 +9,9 @@ use image::{
     imageops::{resize, FilterType::*},
     GenericImageView, ImageBuffer, Rgba,
 };
-use rand::{thread_rng, Rng};
+use rand::{thread_rng, Rng, distributions::{Uniform,}};
 use slotmap::{DefaultKey, SlotMap};
-use std::{env, f32::consts::PI, path::PathBuf, process::id, time::{Duration, SystemTime}, thread::{sleep,}};
+use std::{borrow::BorrowMut, env, f32::consts::PI, path::PathBuf, process::id, thread::sleep, time::{Duration, SystemTime}};
 
 use tch::{nn, nn::ModuleT, nn::OptimizerConfig, Device, Tensor, Kind};
 
@@ -25,8 +25,6 @@ pub mod consts {
     pub const CELL_SIZE_FLOAT:                          f32 = CELL_SIZE as f32;
     pub const W_FLOAT:                                  f32 = W_SIZE as f32;
     pub const W_USIZE:                                  u32 = W_SIZE as u32;
-
-    pub const N_CLANS:                                usize = 4;
 
     pub const B_FOV:                                  isize = 10;
 
@@ -65,10 +63,10 @@ pub mod consts {
     pub const LOW_ENERGY_SPEED_DAMP_RATE:               f32 = 0.2;                 // beings slow down when their energy runs low
     pub const OFF_DIR_MOVEMENT_SPEED_DAMP_RATE:         f32 = 0.5;                 // beings slow down when not moving face-forward
 
-    pub const N_FOOD_SPAWN_PER_STEP:                  usize = 2; 
+    pub const N_FOOD_SPAWN_PER_STEP:                  usize = 1; 
 
     pub const SPEECHLET_LEN:                          usize = 8;                   // length of the sound vector a being can emit
-    pub const B_OUTPUT_LEN:                           usize = 5 + SPEECHLET_LEN;   // (f-b, l-r, rotate, spawn obstruct, spawn_speechlet, *speechlet)
+    pub const B_OUTPUT_LEN:                           usize = 4 + SPEECHLET_LEN;   // (f-b, rotate, spawn obstruct, spawn_speechlet, *speechlet)
 }
 
 use consts::*;
@@ -125,7 +123,7 @@ pub fn b_collides_b(b1: &Being, b2: &Being) -> (f32, f32, Vec2, Vec<f32>) {
     let centre_dist = c1c2.length();
     let (r1, r2) = (b1.radius, b2.radius);
 
-    let mut rel_vec = b2.clan.clone();
+    let mut rel_vec = b2.genome.clone();
     rel_vec.append(&mut vec![
         b1.pos.angle_between(b2.pos) / PI,
         centre_dist / B_FOV as f32,
@@ -173,10 +171,10 @@ pub fn b_collides_s(b: &Being, s: &Speechlet) -> f32 {
 #[derive(Debug)]
 pub struct Being {
     pos: Vec2,
-    radius: f32, // to be deprecated
+    radius: f32,
     rotation: f32,
     energy: f32,
-    clan: Vec<f32>,
+    genome: Vec<f32>,
 
     cell: (usize, usize),
     id: usize,
@@ -288,6 +286,7 @@ impl World {
                 rng.gen_range(-PI..PI),
                 B_START_ENERGY,
                 vec![0., 0., 0., 1.],
+                
             );
         }
 
@@ -317,7 +316,7 @@ impl World {
         pos: Vec2,
         rotation: f32,
         health: f32,
-        clan: Vec<f32>,
+        genome: Vec<f32>,
     ) {
         let (i, j) = pos_to_cell(pos);
 
@@ -326,7 +325,7 @@ impl World {
             pos: pos,
             rotation: rotation,
             energy: health,
-            clan: clan,
+            genome,
 
             cell: (i, j),
             id: self.being_id,
@@ -341,7 +340,7 @@ impl World {
 
             state: vec![],
 
-            output: vec![],
+            output: vec![0.; B_OUTPUT_LEN],
         };
 
         let k = self.beings.insert(being);
@@ -408,18 +407,23 @@ impl World {
 
         for _ in 0..substeps {
             self.beings.iter_mut().for_each(|(k, being)| {
-                let move_vec = dir_from_theta(being.rotation) * ((B_SPEED * (being.energy / (B_START_ENERGY * LOW_ENERGY_SPEED_DAMP_RATE))) / s); // this part to be redone based on being outputs
+                let being_rotation = dir_from_theta(being.rotation);
+                let move_vec = being.output[0] * being_rotation * ((B_SPEED * (being.energy / (B_START_ENERGY * LOW_ENERGY_SPEED_DAMP_RATE))) / s);
+
+                // let move_vec = dir_from_theta(being.rotation) * ((B_SPEED * (being.energy / (B_START_ENERGY * LOW_ENERGY_SPEED_DAMP_RATE))) / s); // this part to be redone based on being outputs
                 let newij = being.pos + move_vec;
 
                 if !oob(newij, being.radius) {
                     being.pos_update = move_vec;
-                } else {
-                    being.pos = Vec2::new(
-                        thread_rng().gen_range(1.0..W_FLOAT - 1.),
-                        thread_rng().gen_range(1.0..W_FLOAT - 1.),
-                    );
-                    being.energy_update -= HEADON_B_HITS_O_DAMAGE / s / 10.;
+                    being.rotation_update = being.output[1];
                 }
+                // else {
+                //     being.pos = Vec2::new(
+                //         thread_rng().gen_range(1.0..W_FLOAT - 1.),
+                //         thread_rng().gen_range(1.0..W_FLOAT - 1.),
+                //     );
+                //     being.energy_update -= HEADON_B_HITS_O_DAMAGE / s / 10.;
+                // }
             });
         }
     }
@@ -660,18 +664,43 @@ impl World {
         }
     }
 
+    // has side-effects; probably not worth the effort to separate updates and effects
     pub fn perform_being_outputs(&mut self) {
-        self.beings.iter_mut().for_each(|(k, b)| {
-            let output = b.output.clone();
+        let mut rng = thread_rng(); // temp
+        let mut uni = Uniform::new(-1., 1.); // temp
 
+        let mut obstruct_queue: Vec<Vec2> = Vec::new();
+        let mut speechlet_queue: Vec<(Vec2, Vec<f32>)> = Vec::new();
+
+        self.beings.iter_mut().for_each(|(k, b)| {
             // TODO: b.action_and_thought = b.nn(b.inputs)
             // b.action, b.thought = b.action_and_thought[:n_actions], b.action_and_thought[n_actions:]
             // if b.action[-1] > 0.5: add_speechlet(b.thought); b.energy 
-
+            
             b.being_inputs.clear();
             b.food_obstruct_inputs.clear();
             b.speechlet_inputs.clear();
+
+            b.output = (0..B_OUTPUT_LEN).map(|_| {rng.sample(&uni)}).collect();
+            
+            if b.output[2] > 0.999 {
+                b.energy_update -= SPAWN_O_RATIO * B_START_ENERGY;
+                obstruct_queue.push(b.pos + dir_from_theta(b.rotation) * 2.);
+            }
+            
+            if b.output[3] > 0.999 {
+                b.energy_update -= SPAWN_S_RATIO * B_START_ENERGY;
+                speechlet_queue.push((b.pos, Vec::from(&b.output[3..B_OUTPUT_LEN])));
+            }
+
+            
         });
+        for pos in obstruct_queue {
+            self.add_obstruct(pos);
+        }
+        for (pos, speechlet) in speechlet_queue {
+            self.add_speechlet(speechlet, pos);
+        }
     }
 
     pub fn step(&mut self, substeps: usize) {
@@ -733,13 +762,13 @@ impl event::EventHandler<ggez::GameError> for MainState {
                 self.world.beings.len(),
                 self.world.foods.len()
             );
-            self.world.add_speechlet(
-                vec![],
-                Vec2 {
-                    x: thread_rng().gen_range(0.0..W_FLOAT),
-                    y: thread_rng().gen_range(0.0..W_FLOAT),
-                },
-            );
+            // self.world.add_speechlet(
+            //     vec![],
+            //     Vec2 {
+            //         x: thread_rng().gen_range(0.0..W_FLOAT),
+            //         y: thread_rng().gen_range(0.0..W_FLOAT),
+            //     },
+            // );
         }
 
         self.world.step(1);
@@ -838,15 +867,15 @@ pub fn gauge() {
     let mut w = World::standard_world();
     let now = SystemTime::now();
     loop {
-        w.step(1);
+        w.step(4);
         if w.age % 60 == 0 {
-            w.add_speechlet(
-                vec![],
-                Vec2 {
-                    x: thread_rng().gen_range(0.0..W_FLOAT),
-                    y: thread_rng().gen_range(0.0..W_FLOAT),
-                },
-            );
+            // w.add_speechlet(
+            //     vec![],
+            //     Vec2 {
+            //         x: thread_rng().gen_range(0.0..W_FLOAT),
+            //         y: thread_rng().gen_range(0.0..W_FLOAT),
+            //     },
+            // );
             let duration = match now.elapsed() {
                 Ok(now) => {now.as_millis()}
                 _ => {5 as u128}
