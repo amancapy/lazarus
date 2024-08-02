@@ -1,19 +1,16 @@
 use ggez::{
-    conf::{NumSamples, WindowMode, WindowSetup},
+    conf::{Backend, NumSamples, WindowMode, WindowSetup},
     event,
     glam::*,
-    graphics::{Canvas, Color, DrawParam, Image, InstanceArray, Mesh, MeshBuilder, Sampler},
+    graphics::{Canvas, Color, DrawParam, Image, InstanceArray},
     Context, GameResult,
-};
-use image::{
-    imageops::{resize, FilterType::*},
-    GenericImageView, ImageBuffer, Rgba,
 };
 use rand::{thread_rng, Rng, distributions::{Uniform,}};
 use slotmap::{DefaultKey, SlotMap};
-use std::{borrow::BorrowMut, env, f32::consts::PI, path::PathBuf, process::id, thread::sleep, time::{Duration, SystemTime}};
+use std::{default, env, f32::consts::PI, path::PathBuf, process::id, thread::sleep, time::{Duration, SystemTime}};
 
-use tch::{nn, nn::ModuleT, nn::OptimizerConfig, Device, Tensor, Kind};
+mod models;
+use burn::{backend::{self, NdArray}, prelude::*, tensor};
 
 #[rustfmt::skip]
 pub mod consts {
@@ -29,12 +26,11 @@ pub mod consts {
     pub const B_FOV:                                  isize = 10;
 
     pub const B_SPEED:                                  f32 = 0.1;
-
     pub const B_RADIUS:                                 f32 = 3.5;
     pub const O_RADIUS:                                 f32 = 3.;
     pub const F_RADIUS:                                 f32 = 2.5;
     pub const S_RADIUS:                                 f32 = 1.5;
-
+    pub const GENOME_LEN:                               usize = 10;
     pub const S_GROW_RATE:                              f32 = 1.;
 
     pub const B_DEATH_ENERGY:                           f32 = 0.5;
@@ -118,40 +114,49 @@ pub fn oob(ij: Vec2, r: f32) -> bool {
         || bot_border_trespass(j, r)
 }
 
-pub fn b_collides_b(b1: &Being, b2: &Being) -> (f32, f32, Vec2, Vec<f32>) {
+pub fn b_collides_b(b1: &Being, b2: &Being) -> (f32, f32, Vec2, [f32; 3 + GENOME_LEN]) {
     let c1c2 = b2.pos - b1.pos;
     let centre_dist = c1c2.length();
     let (r1, r2) = (b1.radius, b2.radius);
 
-    let mut rel_vec = b2.genome.clone();
-    rel_vec.append(&mut vec![
+    let other_genome = b2.genome.clone();
+    let rel_vec = [
         b1.pos.angle_between(b2.pos) / PI,
         centre_dist / B_FOV as f32,
         b2.energy / B_START_ENERGY,
-    ]);
+    ];
 
-    (r1 + r2 - centre_dist, centre_dist, c1c2, rel_vec)
+    let mut full_vec = [0.; 3 + GENOME_LEN];
+    (0..3).for_each(|i| {
+        full_vec[i] = rel_vec[i];
+    });
+    (0..GENOME_LEN).for_each(|i| {
+        full_vec[i+3] = other_genome[i];
+    });
+
+    (r1 + r2 - centre_dist, centre_dist, c1c2, full_vec)
 }
 
-pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2, Vec<f32>) {
+pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2, [f32; 4]) {
     let c1c2 = o.pos - b.pos;
     let centre_dist = c1c2.length();
     let (r1, r2) = (b.radius, O_RADIUS);
 
     (
         r1 + r2 - centre_dist,
-        centre_dist / B_FOV as f32,
+        centre_dist,
         c1c2,
-        vec![0., b.pos.angle_between(o.pos) / PI, o.age / O_START_HEALTH],
+        // why is there a 0.?
+        [0., centre_dist / B_FOV as f32, b.pos.angle_between(o.pos) / PI, o.age / O_START_HEALTH],
     )
 }
 
-pub fn b_collides_f(b: &Being, f: &Food) -> (f32, Vec<f32>) {
+pub fn b_collides_f(b: &Being, f: &Food) -> (f32, [f32; 4]) {
     let centre_dist = b.pos.distance(f.pos);
     let (r1, r2) = (b.radius, 1.);
     (
         r1 + r2 - centre_dist,
-        vec![
+        [
             1.,
             centre_dist / B_FOV as f32,
             b.pos.angle_between(f.pos) / PI,
@@ -174,7 +179,7 @@ pub struct Being {
     radius: f32,
     rotation: f32,
     energy: f32,
-    genome: Vec<f32>,
+    genome: [f32; GENOME_LEN],
 
     cell: (usize, usize),
     id: usize,
@@ -183,13 +188,11 @@ pub struct Being {
     energy_update: f32,
     rotation_update: f32,
 
-    being_inputs: Vec<Vec<f32>>,
+    pub being_inputs: Vec<Vec<f32>>,
     food_obstruct_inputs: Vec<Vec<f32>>,
     speechlet_inputs: Vec<Vec<f32>>,
 
-    state: Vec<f32>,
-
-    output: Vec<f32>,
+    output: [f32; B_OUTPUT_LEN],
 }
 
 pub struct Obstruct {
@@ -209,7 +212,7 @@ pub struct Food {
 
 #[derive(Debug)]
 pub struct Speechlet {
-    speechlet: Vec<f32>,
+    speechlet: [f32; SPEECHLET_LEN],
     pos: Vec2,
     radius: f32,
     age: f32,
@@ -285,27 +288,27 @@ impl World {
                 ),
                 rng.gen_range(-PI..PI),
                 B_START_ENERGY,
-                vec![0., 0., 0., 1.],
+                [0.; GENOME_LEN],
                 
             );
         }
 
-        for i in 0..1000 {
-            world.add_obstruct(Vec2::new(
-                rng.gen_range(1.0..W_FLOAT - 1.),
-                rng.gen_range(1.0..W_FLOAT - 1.),
-            ));
-        }
+        // for i in 0..1000 {
+        //     world.add_obstruct(Vec2::new(
+        //         rng.gen_range(1.0..W_FLOAT - 1.),
+        //         rng.gen_range(1.0..W_FLOAT - 1.),
+        //     ));
+        // }
 
-        for i in 0..2000 {
-            world.add_food(
-                Vec2::new(
-                    rng.gen_range(1.0..W_FLOAT - 1.),
-                    rng.gen_range(1.0..W_FLOAT - 1.),
-                ),
-                F_VAL,
-            );
-        }
+        // for i in 0..2000 {
+        //     world.add_food(
+        //         Vec2::new(
+        //             rng.gen_range(1.0..W_FLOAT - 1.),
+        //             rng.gen_range(1.0..W_FLOAT - 1.),
+        //         ),
+        //         F_VAL,
+        //     );
+        // }
 
         world
     }
@@ -316,7 +319,7 @@ impl World {
         pos: Vec2,
         rotation: f32,
         health: f32,
-        genome: Vec<f32>,
+        genome: [f32; GENOME_LEN],
     ) {
         let (i, j) = pos_to_cell(pos);
 
@@ -338,9 +341,7 @@ impl World {
             food_obstruct_inputs: vec![],
             speechlet_inputs: vec![],
 
-            state: vec![],
-
-            output: vec![0.; B_OUTPUT_LEN],
+            output: [0.; B_OUTPUT_LEN],
         };
 
         let k = self.beings.insert(being);
@@ -385,7 +386,7 @@ impl World {
         self.food_id += 1;
     }
 
-    pub fn add_speechlet(&mut self, speechlet: Vec<f32>, pos: Vec2) {
+    pub fn add_speechlet(&mut self, speechlet: [f32; SPEECHLET_LEN], pos: Vec2) {
         let (i, j) = pos_to_cell(pos);
 
         let speechlet = Speechlet {
@@ -408,14 +409,12 @@ impl World {
         for _ in 0..substeps {
             self.beings.iter_mut().for_each(|(k, being)| {
                 let being_rotation = dir_from_theta(being.rotation);
-                let move_vec = being.output[0] * being_rotation * ((B_SPEED * (being.energy / (B_START_ENERGY * LOW_ENERGY_SPEED_DAMP_RATE))) / s);
-
-                // let move_vec = dir_from_theta(being.rotation) * ((B_SPEED * (being.energy / (B_START_ENERGY * LOW_ENERGY_SPEED_DAMP_RATE))) / s); // this part to be redone based on being outputs
+                let move_vec = being.output[0] * being_rotation * ((B_SPEED * (being.energy / (B_START_ENERGY * LOW_ENERGY_SPEED_DAMP_RATE))) / s); // this part to be redone based on being outputs
                 let newij = being.pos + move_vec;
 
                 if !oob(newij, being.radius) {
-                    being.pos_update = move_vec;
-                    being.rotation_update = being.output[1];
+                    being.pos_update += move_vec / s;
+                    being.rotation_update = being.output[1] / s;
                 }
                 // else {
                 //     being.pos = Vec2::new(
@@ -460,11 +459,11 @@ impl World {
                                         &self.beings.get(*id2).unwrap(),
                                     );
                                     let b1 = self.beings.get_mut(*id1).unwrap();
-                                    b1.being_inputs.push(rel_vec);
+                                    b1.being_inputs.push(Vec::from(rel_vec));
 
                                     if overlap > 0. {
                                         let d_p = overlap / centre_dist * c1c2;
-                                        let half_dist = d_p / 1.9;
+                                        let half_dist = d_p / 1.5;
 
                                         let new_pos = b1.pos - half_dist;
                                         if !oob(new_pos, b1.radius) {
@@ -491,11 +490,11 @@ impl World {
                                 let o = self.obstructs.get_mut(*ob_id).unwrap();
 
                                 let (overlap, centre_dist, c1c2, rel_vec) = b_collides_o(b, o);
-                                b.food_obstruct_inputs.push(rel_vec);
+                                b.food_obstruct_inputs.push(Vec::from(rel_vec));
 
                                 if overlap > 0. {
                                     let d_p = overlap / centre_dist * c1c2;
-                                    let half_dist = d_p / 1.9;
+                                    let half_dist = d_p / 1.5;
                                     b.pos_update -= half_dist;
 
                                     let b_dir = dir_from_theta(b.rotation);
@@ -517,7 +516,7 @@ impl World {
                                 let f_ref = f.as_ref().unwrap();
 
                                 let (overlap, rel_vec) = b_collides_f(&b, f_ref);
-                                b.food_obstruct_inputs.push(rel_vec);
+                                b.food_obstruct_inputs.push(Vec::from(rel_vec));
 
                                 if overlap > 0. && !f_ref.eaten && b.energy <= B_START_ENERGY {
                                     b.energy_update += f_ref.val;
@@ -533,7 +532,7 @@ impl World {
                                 let overlap = b_collides_s(&b, &s);
 
                                 if overlap > 0. && !s.recepient_being_ids.contains(&b.id) {
-                                    b.speechlet_inputs.push(s.speechlet.clone());
+                                    b.speechlet_inputs.push(Vec::from(s.speechlet));
                                     s.recepient_being_ids.push(b.id);
                                 }
                             }
@@ -667,12 +666,18 @@ impl World {
     // has side-effects; probably not worth the effort to separate updates and effects
     pub fn perform_being_outputs(&mut self) {
         let mut rng = thread_rng(); // temp
-        let mut uni = Uniform::new(-1., 1.); // temp
+        let uni = Uniform::new(-1., 1.); // temp
 
         let mut obstruct_queue: Vec<Vec2> = Vec::new();
-        let mut speechlet_queue: Vec<(Vec2, Vec<f32>)> = Vec::new();
+        let mut speechlet_queue: Vec<(Vec2, [f32; SPEECHLET_LEN])> = Vec::new();
+        
+        let device = backend::ndarray::NdArrayDevice::Cpu;
+        self.beings.iter_mut().for_each(|(_, b)| {
+            let being_batch: Tensor<NdArray, 2> = Tensor::from_floats(b.being_inputs.clone().into_iter().flatten().collect::<Vec<f32>>().as_slice(), &device).reshape([b.being_inputs.len(), GENOME_LEN + 3]);
+            let fo_batch: Tensor<NdArray, 2> = Tensor::from_floats(b.food_obstruct_inputs.clone().into_iter().flatten().collect::<Vec<f32>>().as_slice(), &device).reshape([b.food_obstruct_inputs.len(), 4]);
+            let speechlet_batch: Tensor<NdArray, 2> = Tensor::from_floats(b.speechlet_inputs.clone().into_iter().flatten().collect::<Vec<f32>>().as_slice(), &device).reshape([b.speechlet_inputs.len(), SPEECHLET_LEN]);
 
-        self.beings.iter_mut().for_each(|(k, b)| {
+            
             // TODO: b.action_and_thought = b.nn(b.inputs)
             // b.action, b.thought = b.action_and_thought[:n_actions], b.action_and_thought[n_actions:]
             // if b.action[-1] > 0.5: add_speechlet(b.thought); b.energy 
@@ -681,19 +686,25 @@ impl World {
             b.food_obstruct_inputs.clear();
             b.speechlet_inputs.clear();
 
-            b.output = (0..B_OUTPUT_LEN).map(|_| {rng.sample(&uni)}).collect();
+            let mut output = [0.; B_OUTPUT_LEN];
+            (0..B_OUTPUT_LEN).for_each(|i| {output[i] = rng.sample(&uni);});
+            b.output = output;
             
-            if b.output[2] > 0.999 {
+            if b.output[2] > 0.9999 {
                 b.energy_update -= SPAWN_O_RATIO * B_START_ENERGY;
                 obstruct_queue.push(b.pos + dir_from_theta(b.rotation) * 2.);
             }
             
+            let mut speechlet = [0.; SPEECHLET_LEN];
+            (0..SPEECHLET_LEN).for_each(|i| {
+                speechlet[i] = b.output[i+3];
+            });
+
             if b.output[3] > 0.999 {
                 b.energy_update -= SPAWN_S_RATIO * B_START_ENERGY;
-                speechlet_queue.push((b.pos, Vec::from(&b.output[3..B_OUTPUT_LEN])));
+                speechlet_queue.push((b.pos, speechlet));
             }
 
-            
         });
         for pos in obstruct_queue {
             self.add_obstruct(pos);
@@ -762,16 +773,9 @@ impl event::EventHandler<ggez::GameError> for MainState {
                 self.world.beings.len(),
                 self.world.foods.len()
             );
-            // self.world.add_speechlet(
-            //     vec![],
-            //     Vec2 {
-            //         x: thread_rng().gen_range(0.0..W_FLOAT),
-            //         y: thread_rng().gen_range(0.0..W_FLOAT),
-            //     },
-            // );
         }
 
-        self.world.step(1);
+        self.world.step(4);
         Ok(())
     }
 
@@ -867,7 +871,7 @@ pub fn gauge() {
     let mut w = World::standard_world();
     let now = SystemTime::now();
     loop {
-        w.step(4);
+        w.step(32);
         if w.age % 60 == 0 {
             // w.add_speechlet(
             //     vec![],
@@ -890,8 +894,6 @@ pub fn main() {
     assert!(W_SIZE % N_CELLS == 0);
     assert!(B_RADIUS < CELL_SIZE as f32);
 
-    let d = Device::cuda_if_available();
-    println!("{:?}", d);
     // gauge();
     run();
 }
