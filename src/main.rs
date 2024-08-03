@@ -789,7 +789,7 @@ impl<const D: usize> World<D> {
 
                 b.output = output;
                 
-                if b.output[2] > 0. {
+                if b.output[2] > 0.9999 {
                     b.energy_update -= SPAWN_O_RATIO * B_START_ENERGY;
                     obstruct_queue.push(b.pos + dir_from_theta(b.rotation) * 2.);
                 }
@@ -799,7 +799,7 @@ impl<const D: usize> World<D> {
                     speechlet[i] = b.output[i + 3];
                 });
 
-                if b.output[3] > 0. {
+                if b.output[3] > 0.9999 {
                     b.energy_update -= SPAWN_S_RATIO * B_START_ENERGY;
                     speechlet_queue.push((b.pos, speechlet));
                 }
