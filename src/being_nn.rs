@@ -58,8 +58,8 @@ trait Forward {
 
 #[derive(Debug, Clone)]
 pub struct FF<B: Backend> {
-    lins: Vec<Linear<B>>,
-    acts: Vec<Activation>,
+    pub lins: Vec<Linear<B>>,
+    pub acts: Vec<Activation>,
 }
 
 pub fn create_ff<B: Backend>(
@@ -74,7 +74,7 @@ pub fn create_ff<B: Backend>(
     FF {
         lins: (0..layer_sizes.len() - 1)
             .into_iter()
-            .map(|i| LinearConfig::new(layer_sizes[i], layer_sizes[i + 1]).init(device))
+            .map(|i| LinearConfig::new(layer_sizes[i], layer_sizes[i + 1]).init(device).no_grad())
             .collect(),
         acts: activations,
     }
@@ -93,11 +93,11 @@ impl<B: Backend> FF<B> {
 
 #[derive(Clone)]
 pub struct SumFxModel<B: Backend> {
-    being_model: FF<B>,
-    fo_model: FF<B>,
-    speechlet_model: FF<B>,
+    pub being_model: FF<B>,
+    pub fo_model: FF<B>,
+    pub speechlet_model: FF<B>,
 
-    final_model: FF<B>,
+    pub final_model: FF<B>,
 }
 
 impl<B: Backend> SumFxModel<B> {
@@ -142,7 +142,7 @@ impl<B: Backend> SumFxModel<B> {
         // println!("{}", 3);
 
         let intermediate = (beings_output + fo_output + speechlet_output) / 3.;
-        
+
         let final_output = self.final_model.forward(intermediate).squeeze(0);
         // println!("{}", 4);
 

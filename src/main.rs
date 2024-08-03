@@ -1,22 +1,20 @@
+use being_nn::{Activation, Sigmoid, SumFxModel, Tanh};
 use ggez::{
     conf::{NumSamples, WindowMode, WindowSetup},
     event,
     glam::*,
-    graphics::{default_shader, Canvas, Color, DrawParam, Image, InstanceArray},
+    graphics::{Canvas, Color, DrawParam, Image, InstanceArray},
     Context, GameResult,
 };
-use being_nn::{create_ff, Activation, Sigmoid, SumFxModel, Tanh};
 use nn::Relu;
-use rand::{distributions::Uniform, thread_rng, Rng};
+use rand::{thread_rng, Rng};
 use slotmap::{DefaultKey, SlotMap};
 use std::{
-    borrow::Borrow, default, env, f32::consts::PI, path::PathBuf, process::id, thread::sleep, time::{Duration, SystemTime}
+    borrow::{Borrow, BorrowMut}, env, f32::consts::PI, path::PathBuf, process::id, thread::sleep, time::{Duration, SystemTime}
 };
 
 use burn::{
-    backend::{self, NdArray},
     prelude::*,
-    tensor::{self, backend::Backend},
 };
 
 mod being_nn;
@@ -50,15 +48,15 @@ pub mod consts {
 
     pub const BASE_ANG_SPEED_DEGREES:                   f32 = 10.;
 
-    pub const B_START_ENERGY:                           f32 = 100.;
+    pub const B_START_ENERGY:                           f32 = 10.;
     pub const O_START_HEALTH:                           f32 = 25.;
     pub const F_START_AGE:                              f32 = 5.;
     pub const S_START_AGE:                              f32 = 5.;
     pub const F_VAL:                                    f32 = 1.;
 
-    pub const B_TIRE_RATE:                              f32 = 0.001;
+    pub const B_TIRE_RATE:                              f32 = 0.01;
     pub const O_AGE_RATE:                               f32 = 0.001;
-    pub const F_AGE_RATE:                               f32 = 0.001;
+    pub const F_AGE_RATE:                               f32 = 0.01;
     pub const S_SOFTEN_RATE:                            f32 = 0.1;
 
     pub const B_HEADON_DAMAGE:                          f32 = 0.25;
@@ -74,9 +72,11 @@ pub mod consts {
 
     pub const SPEECHLET_LEN:                          usize = 8;                   // length of the sound vector a being can emit
     pub const B_OUTPUT_LEN:                           usize = 4 + SPEECHLET_LEN;   // (f-b, rotate, spawn obstruct, spawn_speechlet, *speechlet)
+
+    pub const REINCARNATION_THRESHOLD:                usize = 10;
     
-    pub type BACKEND                                        = backend::Wgpu;
-    pub const DEVICE:       backend::wgpu::WgpuDevice = backend::wgpu::WgpuDevice::BestAvailable;
+    pub type BACKEND                                        = backend::NdArray;
+    pub const DEVICE:       backend::ndarray::NdArrayDevice = backend::ndarray::NdArrayDevice::Cpu;
 }
 
 use consts::*;
@@ -239,7 +239,7 @@ pub struct Speechlet {
     recepient_being_ids: Vec<usize>,
 }
 
-pub struct World <const D: usize> {
+pub struct World<const D: usize> {
     beings_and_models: SlotMap<DefaultKey, (Being, SumFxModel<BACKEND>)>,
     obstructs: SlotMap<DefaultKey, Obstruct>,
     foods: SlotMap<DefaultKey, Food>,
@@ -298,9 +298,9 @@ impl<const D: usize> World<D> {
         let mut world = World::new();
         let mut rng = thread_rng();
 
-        for i in 0..25 {
+        for i in 0..100 {
             let being_config = (
-                vec![3+GENOME_LEN, 11, 12, 13],
+                vec![3 + GENOME_LEN, 11, 12, 13],
                 vec![
                     Activation::Identity,
                     Activation::Identity,
@@ -328,7 +328,7 @@ impl<const D: usize> World<D> {
             );
             let final_config = (
                 vec![13, B_OUTPUT_LEN],
-                vec![Activation::Identity, Activation::Identity],
+                vec![Activation::Identity, Activation::Tanh(Tanh {})],
             );
 
             world.add_being(
@@ -480,8 +480,8 @@ impl<const D: usize> World<D> {
                     if !oob(newij, being.radius) {
                         being.pos_update += move_vec / s;
                         being.rotation_update = being.output[1] / s;
-                    }
-                    else { // maybe
+                    } else {
+                        // maybe
                         being.pos = Vec2::new(
                             thread_rng().gen_range(1.0..W_FLOAT - 1.),
                             thread_rng().gen_range(1.0..W_FLOAT - 1.),
@@ -736,7 +736,7 @@ impl<const D: usize> World<D> {
         self.beings_and_models
             .iter_mut()
             .for_each(|(_, (b, model))| {
-                b.being_inputs.push(vec![0.; 3+GENOME_LEN]);
+                b.being_inputs.push(vec![0.; 3 + GENOME_LEN]);
                 b.food_obstruct_inputs.push(vec![0.; 4]);
                 b.speechlet_inputs.push(vec![0.; SPEECHLET_LEN]);
 
@@ -777,16 +777,19 @@ impl<const D: usize> World<D> {
                 b.food_obstruct_inputs.clear();
                 b.speechlet_inputs.clear();
 
-                let model_output = model.forward(being_tensor, fo_tensor, speechlet_tensor).into_data().value;
-
+                let model_output = model
+                    .forward(being_tensor, fo_tensor, speechlet_tensor)
+                    .into_data()
+                    .value;
+                
                 let mut output = [0.; B_OUTPUT_LEN];
                 (0..B_OUTPUT_LEN).into_iter().for_each(|i| {
                     output[i] = model_output[i];
                 });
 
                 b.output = output;
-
-                if b.output[2] > 0.9999 {
+                
+                if b.output[2] > 0. {
                     b.energy_update -= SPAWN_O_RATIO * B_START_ENERGY;
                     obstruct_queue.push(b.pos + dir_from_theta(b.rotation) * 2.);
                 }
@@ -796,16 +799,25 @@ impl<const D: usize> World<D> {
                     speechlet[i] = b.output[i + 3];
                 });
 
-                if b.output[3] > 0.999 {
+                if b.output[3] > 0. {
                     b.energy_update -= SPAWN_S_RATIO * B_START_ENERGY;
                     speechlet_queue.push((b.pos, speechlet));
                 }
             });
+
         for pos in obstruct_queue {
             self.add_obstruct(pos);
         }
         for (pos, speechlet) in speechlet_queue {
             self.add_speechlet(speechlet, pos);
+        }
+    }
+
+    pub fn reworlding(mut self) {
+        if self.beings_and_models.len() < REINCARNATION_THRESHOLD {
+            let surviving_models: Vec<SumFxModel<BACKEND>> = self.beings_and_models.into_iter().map(|(_, (_, m))| {
+                m
+            }).collect();
         }
     }
 
