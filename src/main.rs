@@ -68,7 +68,7 @@ pub mod consts {
     pub const LOW_ENERGY_SPEED_DAMP_RATE:               f32 = 0.2;                 // beings slow down when their energy runs low
     pub const OFF_DIR_MOVEMENT_SPEED_DAMP_RATE:         f32 = 0.5;                 // beings slow down when not moving face-forward
 
-    pub const N_FOOD_SPAWN_PER_STEP:                  usize = 1; 
+    pub const N_FOOD_SPAWN_PER_STEP:                  usize = 1; // EVEN 1 IS TOO HIGH. NEED TO f32 FOOD REPOP LOGIC 
 
     pub const SPEECHLET_LEN:                          usize = 8;                   // length of the sound vector a being can emit
     pub const B_OUTPUT_LEN:                           usize = 4 + SPEECHLET_LEN;   // (f-b, rotate, spawn obstruct, spawn_speechlet, *speechlet)
