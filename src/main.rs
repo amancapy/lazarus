@@ -5,17 +5,12 @@ use ggez::{
     graphics::{default_shader, Canvas, Color, DrawParam, Image, InstanceArray},
     Context, GameResult,
 };
-use models::{create_ff, Activation, Sigmoid, SumFxModel, Tanh};
+use being_nn::{create_ff, Activation, Sigmoid, SumFxModel, Tanh};
 use nn::Relu;
 use rand::{distributions::Uniform, thread_rng, Rng};
 use slotmap::{DefaultKey, SlotMap};
 use std::{
-    default, env,
-    f32::consts::PI,
-    path::PathBuf,
-    process::id,
-    thread::sleep,
-    time::{Duration, SystemTime},
+    borrow::Borrow, default, env, f32::consts::PI, path::PathBuf, process::id, thread::sleep, time::{Duration, SystemTime}
 };
 
 use burn::{
@@ -24,7 +19,7 @@ use burn::{
     tensor::{self, backend::Backend},
 };
 
-mod models;
+mod being_nn;
 
 #[rustfmt::skip]
 pub mod consts {
@@ -80,8 +75,8 @@ pub mod consts {
     pub const SPEECHLET_LEN:                          usize = 8;                   // length of the sound vector a being can emit
     pub const B_OUTPUT_LEN:                           usize = 4 + SPEECHLET_LEN;   // (f-b, rotate, spawn obstruct, spawn_speechlet, *speechlet)
     
-    pub type BACKEND                                        = backend::NdArray;
-    pub const DEVICE:       backend::ndarray::NdArrayDevice = backend::ndarray::NdArrayDevice::Cpu;
+    pub type BACKEND                                        = backend::Wgpu;
+    pub const DEVICE:       backend::wgpu::WgpuDevice = backend::wgpu::WgpuDevice::BestAvailable;
 }
 
 use consts::*;
@@ -245,7 +240,7 @@ pub struct Speechlet {
 }
 
 pub struct World <const D: usize> {
-    beings_and_models: SlotMap<DefaultKey, (Being, SumFxModel<backend::NdArray>)>,
+    beings_and_models: SlotMap<DefaultKey, (Being, SumFxModel<BACKEND>)>,
     obstructs: SlotMap<DefaultKey, Obstruct>,
     foods: SlotMap<DefaultKey, Food>,
     speechlets: SlotMap<DefaultKey, Speechlet>,
@@ -782,7 +777,7 @@ impl<const D: usize> World<D> {
                 b.food_obstruct_inputs.clear();
                 b.speechlet_inputs.clear();
 
-                let model_output = model.forward(being_tensor, fo_tensor, speechlet_tensor).into_primitive().array;
+                let model_output = model.forward(being_tensor, fo_tensor, speechlet_tensor).into_data().value;
 
                 let mut output = [0.; B_OUTPUT_LEN];
                 (0..B_OUTPUT_LEN).into_iter().for_each(|i| {
