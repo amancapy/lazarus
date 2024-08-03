@@ -11,7 +11,14 @@ use image::{
 };
 use rand::{thread_rng, Rng};
 use slotmap::{DefaultKey, SlotMap};
-use std::{env, f32::consts::PI, path::PathBuf, process::id, time::{Duration, SystemTime}, thread::{sleep,}};
+use std::{
+    env,
+    f32::consts::PI,
+    path::PathBuf,
+    process::id,
+    thread::sleep,
+    time::{Duration, SystemTime},
+};
 
 // use anyhow::Result;
 // use tch::{nn, nn::ModuleT, nn::OptimizerConfig, Device, Tensor, Kind};
@@ -409,7 +416,9 @@ impl World {
 
         for _ in 0..substeps {
             self.beings.iter_mut().for_each(|(k, being)| {
-                let move_vec = dir_from_theta(being.rotation) * ((B_SPEED * (being.energy / (B_START_ENERGY * LOW_ENERGY_SPEED_DAMP_RATE))) / s); // this part to be redone based on being outputs
+                let move_vec = dir_from_theta(being.rotation)
+                    * ((B_SPEED * (being.energy / (B_START_ENERGY * LOW_ENERGY_SPEED_DAMP_RATE)))
+                        / s); // this part to be redone based on being outputs
                 let newij = being.pos + move_vec;
 
                 if !oob(newij, being.radius) {
@@ -667,7 +676,7 @@ impl World {
 
             // TODO: b.action_and_thought = b.nn(b.inputs)
             // b.action, b.thought = b.action_and_thought[:n_actions], b.action_and_thought[n_actions:]
-            // if b.action[-1] > 0.5: add_speechlet(b.thought); b.energy 
+            // if b.action[-1] > 0.5: add_speechlet(b.thought); b.energy
 
             b.being_inputs.clear();
             b.food_obstruct_inputs.clear();
@@ -878,12 +887,16 @@ pub fn gauge() {
                 },
             );
             let duration = match now.elapsed() {
-                Ok(now) => {now.as_millis()}
-                _ => {5 as u128}
+                Ok(now) => now.as_millis(),
+                _ => 5 as u128,
             };
-            println!("{} {} {}", w.age / 60, w.beings.len(), w.age as f32 / ((duration as f32) / 1000.));
+            println!(
+                "{} {} {}",
+                w.age / 60,
+                w.beings.len(),
+                w.age as f32 / ((duration as f32) / 1000.)
+            );
         }
-        
     }
 }
 

@@ -1,20 +1,36 @@
 use ggez::{
-    conf::{Backend, NumSamples, WindowMode, WindowSetup},
+    conf::{NumSamples, WindowMode, WindowSetup},
     event,
     glam::*,
-    graphics::{Canvas, Color, DrawParam, Image, InstanceArray},
+    graphics::{default_shader, Canvas, Color, DrawParam, Image, InstanceArray},
     Context, GameResult,
 };
-use rand::{thread_rng, Rng, distributions::{Uniform,}};
+use models::{create_ff, Activation, Sigmoid, SumFxModel, Tanh};
+use nn::Relu;
+use rand::{distributions::Uniform, thread_rng, Rng};
 use slotmap::{DefaultKey, SlotMap};
-use std::{default, env, f32::consts::PI, path::PathBuf, process::id, thread::sleep, time::{Duration, SystemTime}};
+use std::{
+    default, env,
+    f32::consts::PI,
+    path::PathBuf,
+    process::id,
+    thread::sleep,
+    time::{Duration, SystemTime},
+};
+
+use burn::{
+    backend::{self, NdArray},
+    prelude::*,
+    tensor::{self, backend::Backend},
+};
 
 mod models;
-use burn::{backend::{self, NdArray}, prelude::*, tensor};
 
 #[rustfmt::skip]
 pub mod consts {
     use std::f32::INFINITY;
+
+    use burn::backend;
 
     pub const W_SIZE:                                 usize = 1000;
     pub const N_CELLS:                                usize = 250;
@@ -30,7 +46,7 @@ pub mod consts {
     pub const O_RADIUS:                                 f32 = 3.;
     pub const F_RADIUS:                                 f32 = 2.5;
     pub const S_RADIUS:                                 f32 = 1.5;
-    pub const GENOME_LEN:                               usize = 10;
+    pub const GENOME_LEN:                             usize = 10;                  // future prospect
     pub const S_GROW_RATE:                              f32 = 1.;
 
     pub const B_DEATH_ENERGY:                           f32 = 0.5;
@@ -63,6 +79,9 @@ pub mod consts {
 
     pub const SPEECHLET_LEN:                          usize = 8;                   // length of the sound vector a being can emit
     pub const B_OUTPUT_LEN:                           usize = 4 + SPEECHLET_LEN;   // (f-b, rotate, spawn obstruct, spawn_speechlet, *speechlet)
+    
+    pub type BACKEND                                        = backend::NdArray;
+    pub const DEVICE:       backend::ndarray::NdArrayDevice = backend::ndarray::NdArrayDevice::Cpu;
 }
 
 use consts::*;
@@ -131,7 +150,7 @@ pub fn b_collides_b(b1: &Being, b2: &Being) -> (f32, f32, Vec2, [f32; 3 + GENOME
         full_vec[i] = rel_vec[i];
     });
     (0..GENOME_LEN).for_each(|i| {
-        full_vec[i+3] = other_genome[i];
+        full_vec[i + 3] = other_genome[i];
     });
 
     (r1 + r2 - centre_dist, centre_dist, c1c2, full_vec)
@@ -147,7 +166,12 @@ pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2, [f32; 4]) {
         centre_dist,
         c1c2,
         // why is there a 0.?
-        [0., centre_dist / B_FOV as f32, b.pos.angle_between(o.pos) / PI, o.age / O_START_HEALTH],
+        [
+            0.,
+            centre_dist / B_FOV as f32,
+            b.pos.angle_between(o.pos) / PI,
+            o.age / O_START_HEALTH,
+        ],
     )
 }
 
@@ -188,7 +212,7 @@ pub struct Being {
     energy_update: f32,
     rotation_update: f32,
 
-    pub being_inputs: Vec<Vec<f32>>,
+    being_inputs: Vec<Vec<f32>>,
     food_obstruct_inputs: Vec<Vec<f32>>,
     speechlet_inputs: Vec<Vec<f32>>,
 
@@ -220,8 +244,8 @@ pub struct Speechlet {
     recepient_being_ids: Vec<usize>,
 }
 
-pub struct World {
-    beings: SlotMap<DefaultKey, Being>,
+pub struct World <const D: usize> {
+    beings_and_models: SlotMap<DefaultKey, (Being, SumFxModel<backend::NdArray>)>,
     obstructs: SlotMap<DefaultKey, Obstruct>,
     foods: SlotMap<DefaultKey, Food>,
     speechlets: SlotMap<DefaultKey, Speechlet>,
@@ -244,10 +268,10 @@ pub struct World {
     age: usize,
 }
 
-impl World {
+impl<const D: usize> World<D> {
     pub fn new() -> Self {
-        World {
-            beings: SlotMap::new(),
+        World::<D> {
+            beings_and_models: SlotMap::new(),
             obstructs: SlotMap::new(),
             foods: SlotMap::new(),
             speechlets: SlotMap::new(),
@@ -279,7 +303,39 @@ impl World {
         let mut world = World::new();
         let mut rng = thread_rng();
 
-        for i in 0..250 {
+        for i in 0..25 {
+            let being_config = (
+                vec![3+GENOME_LEN, 11, 12, 13],
+                vec![
+                    Activation::Identity,
+                    Activation::Identity,
+                    Activation::Identity,
+                    Activation::Identity,
+                ],
+            );
+            let fo_config = (
+                vec![4, 11, 12, 13],
+                vec![
+                    Activation::Identity,
+                    Activation::Identity,
+                    Activation::Identity,
+                    Activation::Identity,
+                ],
+            );
+            let speechlet_config = (
+                vec![SPEECHLET_LEN, 11, 12, 13],
+                vec![
+                    Activation::Identity,
+                    Activation::Identity,
+                    Activation::Identity,
+                    Activation::Identity,
+                ],
+            );
+            let final_config = (
+                vec![13, B_OUTPUT_LEN],
+                vec![Activation::Identity, Activation::Identity],
+            );
+
             world.add_being(
                 B_RADIUS,
                 Vec2::new(
@@ -289,26 +345,32 @@ impl World {
                 rng.gen_range(-PI..PI),
                 B_START_ENERGY,
                 [0.; GENOME_LEN],
-                
+                SumFxModel::new(
+                    being_config,
+                    fo_config,
+                    speechlet_config,
+                    final_config,
+                    &DEVICE,
+                ),
             );
         }
 
-        // for i in 0..1000 {
-        //     world.add_obstruct(Vec2::new(
-        //         rng.gen_range(1.0..W_FLOAT - 1.),
-        //         rng.gen_range(1.0..W_FLOAT - 1.),
-        //     ));
-        // }
+        for i in 0..1000 {
+            world.add_obstruct(Vec2::new(
+                rng.gen_range(1.0..W_FLOAT - 1.),
+                rng.gen_range(1.0..W_FLOAT - 1.),
+            ));
+        }
 
-        // for i in 0..2000 {
-        //     world.add_food(
-        //         Vec2::new(
-        //             rng.gen_range(1.0..W_FLOAT - 1.),
-        //             rng.gen_range(1.0..W_FLOAT - 1.),
-        //         ),
-        //         F_VAL,
-        //     );
-        // }
+        for i in 0..2000 {
+            world.add_food(
+                Vec2::new(
+                    rng.gen_range(1.0..W_FLOAT - 1.),
+                    rng.gen_range(1.0..W_FLOAT - 1.),
+                ),
+                F_VAL,
+            );
+        }
 
         world
     }
@@ -320,6 +382,8 @@ impl World {
         rotation: f32,
         health: f32,
         genome: [f32; GENOME_LEN],
+
+        model: SumFxModel<BACKEND>,
     ) {
         let (i, j) = pos_to_cell(pos);
 
@@ -344,7 +408,7 @@ impl World {
             output: [0.; B_OUTPUT_LEN],
         };
 
-        let k = self.beings.insert(being);
+        let k = self.beings_and_models.insert((being, model));
         let ij = two_to_one((i, j));
         self.being_cells[ij].push(k);
 
@@ -407,23 +471,29 @@ impl World {
         let s = substeps as f32;
 
         for _ in 0..substeps {
-            self.beings.iter_mut().for_each(|(k, being)| {
-                let being_rotation = dir_from_theta(being.rotation);
-                let move_vec = being.output[0] * being_rotation * ((B_SPEED * (being.energy / (B_START_ENERGY * LOW_ENERGY_SPEED_DAMP_RATE))) / s); // this part to be redone based on being outputs
-                let newij = being.pos + move_vec;
+            self.beings_and_models
+                .iter_mut()
+                .for_each(|(k, (being, _))| {
+                    let being_rotation = dir_from_theta(being.rotation);
+                    let move_vec = being.output[0]
+                        * being_rotation
+                        * ((B_SPEED
+                            * (being.energy / (B_START_ENERGY * LOW_ENERGY_SPEED_DAMP_RATE)))
+                            / s); // this part to be redone based on being outputs
+                    let newij = being.pos + move_vec;
 
-                if !oob(newij, being.radius) {
-                    being.pos_update += move_vec / s;
-                    being.rotation_update = being.output[1] / s;
-                }
-                // else {
-                //     being.pos = Vec2::new(
-                //         thread_rng().gen_range(1.0..W_FLOAT - 1.),
-                //         thread_rng().gen_range(1.0..W_FLOAT - 1.),
-                //     );
-                //     being.energy_update -= HEADON_B_HITS_O_DAMAGE / s / 10.;
-                // }
-            });
+                    if !oob(newij, being.radius) {
+                        being.pos_update += move_vec / s;
+                        being.rotation_update = being.output[1] / s;
+                    }
+                    else { // maybe
+                        being.pos = Vec2::new(
+                            thread_rng().gen_range(1.0..W_FLOAT - 1.),
+                            thread_rng().gen_range(1.0..W_FLOAT - 1.),
+                        );
+                        being.energy_update -= HEADON_B_HITS_O_DAMAGE / s / 10.;
+                    }
+                });
         }
     }
 
@@ -455,10 +525,10 @@ impl World {
                                 // for another being in the same or one of the 8 neighbouring cells
                                 if !(id1 == id2) {
                                     let (overlap, centre_dist, c1c2, rel_vec) = b_collides_b(
-                                        &self.beings.get(*id1).unwrap(),
-                                        &self.beings.get(*id2).unwrap(),
+                                        &self.beings_and_models.get(*id1).unwrap().0,
+                                        &self.beings_and_models.get(*id2).unwrap().0,
                                     );
-                                    let b1 = self.beings.get_mut(*id1).unwrap();
+                                    let (b1, _) = self.beings_and_models.get_mut(*id1).unwrap();
                                     b1.being_inputs.push(Vec::from(rel_vec));
 
                                     if overlap > 0. {
@@ -486,7 +556,7 @@ impl World {
 
                             for ob_id in &self.obstruct_cells[nij] {
                                 // for an obstruct similarly
-                                let b = self.beings.get_mut(*id1).unwrap();
+                                let (b, _) = self.beings_and_models.get_mut(*id1).unwrap();
                                 let o = self.obstructs.get_mut(*ob_id).unwrap();
 
                                 let (overlap, centre_dist, c1c2, rel_vec) = b_collides_o(b, o);
@@ -510,7 +580,7 @@ impl World {
                             for f_id in &self.food_cells[nij] {
                                 // for a food similarly
 
-                                let b = self.beings.get_mut(*id1).unwrap();
+                                let (b, __) = self.beings_and_models.get_mut(*id1).unwrap();
                                 let f = self.foods.get_mut(*f_id);
 
                                 let f_ref = f.as_ref().unwrap();
@@ -526,7 +596,7 @@ impl World {
                             }
 
                             for s_id in &self.speechlet_cells[nij] {
-                                let b = self.beings.get_mut(*id1).unwrap();
+                                let (b, _) = self.beings_and_models.get_mut(*id1).unwrap();
                                 let s = self.speechlets.get_mut(*s_id).unwrap();
 
                                 let overlap = b_collides_s(&b, &s);
@@ -545,7 +615,7 @@ impl World {
 
     // reflect changes in rotation, translation, collision resolution, fatigue, aging, death
     pub fn update_cells(&mut self) {
-        for (k, b) in &mut self.beings {
+        for (k, (b, _)) in &mut self.beings_and_models {
             let new_pos = b.pos + b.pos_update;
 
             b.energy += b.energy_update;
@@ -575,7 +645,7 @@ impl World {
 
     // beings tire and/or die
     pub fn tire_beings(&mut self) {
-        for (k, b) in &mut self.beings {
+        for (k, (b, _)) in &mut self.beings_and_models {
             b.energy -= B_TIRE_RATE;
 
             if b.energy <= 0. {
@@ -585,7 +655,7 @@ impl World {
 
         let mut rng = thread_rng();
         for (k, pos) in &self.being_deaths.clone() {
-            self.beings.remove(*k);
+            self.beings_and_models.remove(*k);
             self.being_cells[two_to_one(pos_to_cell(*pos))].retain(|x| x != k);
 
             for _ in 0..B_SCATTER_COUNT {
@@ -665,47 +735,77 @@ impl World {
 
     // has side-effects; probably not worth the effort to separate updates and effects
     pub fn perform_being_outputs(&mut self) {
-        let mut rng = thread_rng(); // temp
-        let uni = Uniform::new(-1., 1.); // temp
-
         let mut obstruct_queue: Vec<Vec2> = Vec::new();
         let mut speechlet_queue: Vec<(Vec2, [f32; SPEECHLET_LEN])> = Vec::new();
-        
-        let device = backend::ndarray::NdArrayDevice::Cpu;
-        self.beings.iter_mut().for_each(|(_, b)| {
-            let being_batch: Tensor<NdArray, 2> = Tensor::from_floats(b.being_inputs.clone().into_iter().flatten().collect::<Vec<f32>>().as_slice(), &device).reshape([b.being_inputs.len(), GENOME_LEN + 3]);
-            let fo_batch: Tensor<NdArray, 2> = Tensor::from_floats(b.food_obstruct_inputs.clone().into_iter().flatten().collect::<Vec<f32>>().as_slice(), &device).reshape([b.food_obstruct_inputs.len(), 4]);
-            let speechlet_batch: Tensor<NdArray, 2> = Tensor::from_floats(b.speechlet_inputs.clone().into_iter().flatten().collect::<Vec<f32>>().as_slice(), &device).reshape([b.speechlet_inputs.len(), SPEECHLET_LEN]);
 
-            
-            // TODO: b.action_and_thought = b.nn(b.inputs)
-            // b.action, b.thought = b.action_and_thought[:n_actions], b.action_and_thought[n_actions:]
-            // if b.action[-1] > 0.5: add_speechlet(b.thought); b.energy 
-            
-            b.being_inputs.clear();
-            b.food_obstruct_inputs.clear();
-            b.speechlet_inputs.clear();
+        self.beings_and_models
+            .iter_mut()
+            .for_each(|(_, (b, model))| {
+                b.being_inputs.push(vec![0.; 3+GENOME_LEN]);
+                b.food_obstruct_inputs.push(vec![0.; 4]);
+                b.speechlet_inputs.push(vec![0.; SPEECHLET_LEN]);
 
-            let mut output = [0.; B_OUTPUT_LEN];
-            (0..B_OUTPUT_LEN).for_each(|i| {output[i] = rng.sample(&uni);});
-            b.output = output;
-            
-            if b.output[2] > 0.9999 {
-                b.energy_update -= SPAWN_O_RATIO * B_START_ENERGY;
-                obstruct_queue.push(b.pos + dir_from_theta(b.rotation) * 2.);
-            }
-            
-            let mut speechlet = [0.; SPEECHLET_LEN];
-            (0..SPEECHLET_LEN).for_each(|i| {
-                speechlet[i] = b.output[i+3];
+                let being_tensor = Tensor::<BACKEND, 1>::from_floats(
+                    b.being_inputs
+                        .clone()
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<f32>>()
+                        .as_slice(),
+                    &DEVICE,
+                )
+                .reshape([b.being_inputs.len(), GENOME_LEN + 3]);
+
+                let fo_tensor = Tensor::<BACKEND, 1>::from_floats(
+                    b.food_obstruct_inputs
+                        .clone()
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<f32>>()
+                        .as_slice(),
+                    &DEVICE,
+                )
+                .reshape([b.food_obstruct_inputs.len(), 4]);
+
+                let speechlet_tensor = Tensor::<BACKEND, 1>::from_floats(
+                    b.speechlet_inputs
+                        .clone()
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<f32>>()
+                        .as_slice(),
+                    &DEVICE,
+                )
+                .reshape([b.speechlet_inputs.len(), SPEECHLET_LEN]);
+
+                b.being_inputs.clear();
+                b.food_obstruct_inputs.clear();
+                b.speechlet_inputs.clear();
+
+                let model_output = model.forward(being_tensor, fo_tensor, speechlet_tensor).into_primitive().array;
+
+                let mut output = [0.; B_OUTPUT_LEN];
+                (0..B_OUTPUT_LEN).into_iter().for_each(|i| {
+                    output[i] = model_output[i];
+                });
+
+                b.output = output;
+
+                if b.output[2] > 0.9999 {
+                    b.energy_update -= SPAWN_O_RATIO * B_START_ENERGY;
+                    obstruct_queue.push(b.pos + dir_from_theta(b.rotation) * 2.);
+                }
+
+                let mut speechlet = [0.; SPEECHLET_LEN];
+                (0..SPEECHLET_LEN).for_each(|i| {
+                    speechlet[i] = b.output[i + 3];
+                });
+
+                if b.output[3] > 0.999 {
+                    b.energy_update -= SPAWN_S_RATIO * B_START_ENERGY;
+                    speechlet_queue.push((b.pos, speechlet));
+                }
             });
-
-            if b.output[3] > 0.999 {
-                b.energy_update -= SPAWN_S_RATIO * B_START_ENERGY;
-                speechlet_queue.push((b.pos, speechlet));
-            }
-
-        });
         for pos in obstruct_queue {
             self.add_obstruct(pos);
         }
@@ -733,16 +833,16 @@ impl World {
     }
 }
 
-struct MainState {
+struct MainState<const D: usize> {
     being_instances: InstanceArray,
     obstruct_instances: InstanceArray,
     food_instances: InstanceArray,
     speechlet_instances: InstanceArray,
-    world: World,
+    world: World<D>,
 }
 
-impl MainState {
-    fn new(ctx: &mut Context, w: World) -> GameResult<MainState> {
+impl<const D: usize> MainState<D> {
+    fn new(ctx: &mut Context, w: World<D>) -> GameResult<MainState<D>> {
         let being = Image::from_path(ctx, "/red_circle.png")?;
         let obstruct = Image::from_path(ctx, "/white_circle.png")?;
         let food = Image::from_path(ctx, "/green_circle.png")?;
@@ -763,19 +863,19 @@ impl MainState {
     }
 }
 
-impl event::EventHandler<ggez::GameError> for MainState {
+impl<const D: usize> event::EventHandler<ggez::GameError> for MainState<D> {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
         if self.world.age % 60 == 0 {
             println!(
                 "timestep: {}, fps: {}, beings: {}, foods: {}",
                 self.world.age,
                 ctx.time.fps(),
-                self.world.beings.len(),
+                self.world.beings_and_models.len(),
                 self.world.foods.len()
             );
         }
 
-        self.world.step(4);
+        self.world.step(1);
         Ok(())
     }
 
@@ -811,7 +911,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
             }));
 
         self.being_instances
-            .set(self.world.beings.iter().map(|(_, b)| {
+            .set(self.world.beings_and_models.iter().map(|(_, (b, _))| {
                 let xy = b.pos;
                 DrawParam::new()
                     .scale(Vec2::new(1., 1.) / 400. * 2. * B_RADIUS)
@@ -834,7 +934,8 @@ impl event::EventHandler<ggez::GameError> for MainState {
 }
 
 pub fn run() -> GameResult {
-    let world = World::standard_world();
+    let device = burn::backend::ndarray::NdArrayDevice::default();
+    let world = World::<2>::standard_world();
 
     let resource_dir = if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
         let mut path = PathBuf::from(manifest_dir);
@@ -868,25 +969,23 @@ pub fn run() -> GameResult {
 
 // to let it rip without rendering, mainly to gauge overhead of rendering on top of step()
 pub fn gauge() {
-    let mut w = World::standard_world();
+    let device = burn::backend::ndarray::NdArrayDevice::default();
+    let mut w = World::<2>::standard_world();
     let now = SystemTime::now();
     loop {
-        w.step(32);
+        w.step(1);
         if w.age % 60 == 0 {
-            // w.add_speechlet(
-            //     vec![],
-            //     Vec2 {
-            //         x: thread_rng().gen_range(0.0..W_FLOAT),
-            //         y: thread_rng().gen_range(0.0..W_FLOAT),
-            //     },
-            // );
             let duration = match now.elapsed() {
-                Ok(now) => {now.as_millis()}
-                _ => {5 as u128}
+                Ok(now) => now.as_millis(),
+                _ => 5 as u128,
             };
-            println!("{} {} {}", w.age / 60, w.beings.len(), w.age as f32 / ((duration as f32) / 1000.));
+            println!(
+                "{} {}, fps: {}",
+                w.age / 60,
+                w.beings_and_models.len(),
+                w.age as f32 / ((duration as f32) / 1000.)
+            );
         }
-        
     }
 }
 
