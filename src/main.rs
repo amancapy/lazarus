@@ -7,7 +7,7 @@ use ggez::{
     Context, GameResult,
 };
 use nn::Relu;
-use rand::{thread_rng, Rng, seq::SliceRandom};
+use rand::{seq::SliceRandom, thread_rng, Rng};
 use slotmap::{DefaultKey, SlotMap};
 use std::{
     borrow::{Borrow, BorrowMut},
@@ -25,8 +25,6 @@ mod being_nn;
 
 #[rustfmt::skip]
 pub mod consts {
-    use std::f32::INFINITY;
-
     use burn::backend;
 
     pub const W_SIZE:                                 usize = 1000;
@@ -46,6 +44,7 @@ pub mod consts {
     pub const O_RADIUS:                                 f32 = 3.;
     pub const F_RADIUS:                                 f32 = 2.5;
     pub const S_RADIUS:                                 f32 = 1.5;
+
     pub const GENOME_LEN:                             usize = 10;                  // future prospect
     pub const S_GROW_RATE:                              f32 = 1.;
 
@@ -60,8 +59,9 @@ pub mod consts {
     pub const F_START_AGE:                              f32 = 100.;
     pub const S_START_AGE:                              f32 = 5.;
     pub const F_VAL:                                    f32 = 2.;
-
-    pub const B_TIRE_RATE:                              f32 = 0.01;
+    
+    pub const B_TIRE_RATE:                              f32 = 0.005;
+    pub const B_MOVE_TIRE_RATE_CAP:                     f32 = 0.005; // TBD
     pub const O_AGE_RATE:                               f32 = 0.001;
     pub const F_AGE_RATE:                               f32 = 0.01;
     pub const S_SOFTEN_RATE:                            f32 = 0.1;
@@ -287,10 +287,9 @@ pub struct World<const D: usize> {
     speechlet_deaths: Vec<(DefaultKey, Vec2)>,
 
     fov_indices: Vec<(isize, isize)>,
-    
-    age: usize,
-    generation: usize
 
+    age: usize,
+    generation: usize,
 }
 
 impl<const D: usize> World<D> {
@@ -319,9 +318,9 @@ impl<const D: usize> World<D> {
                 .flat_map(|i| (-B_FOV..=B_FOV).map(move |j| (i, j)))
                 .filter(|(i, j)| i.pow(2) + j.pow(2) <= B_FOV.pow(2))
                 .collect(),
-            
+
             age: 0,
-            generation: 0
+            generation: 0,
         }
     }
 
@@ -512,15 +511,13 @@ impl<const D: usize> World<D> {
                         * being_rotation
                         * ((B_SPEED
                             * (being.energy / (B_START_ENERGY * LOW_ENERGY_SPEED_DAMP_RATE)))
-                            / s); // this part to be redone based on being outputs
+                            / s);
                     let newij = being.pos + move_vec;
 
                     if !oob(newij, being.radius) {
                         being.pos_update += move_vec / s;
                         being.rotation_update += (being.output[1] * PI) / s;
-                    }
-
-                    else {
+                    } else {
                         let newij = -dir_from_theta(being.rotation) * 1.5; // hacky
                         being.pos_update += newij;
                     }
@@ -849,7 +846,11 @@ impl<const D: usize> World<D> {
 
             let mut rng = thread_rng();
             for _ in 0..(B_START_COUNT - surviving_models.len()) {
-                let new_model = surviving_models.choose(&mut rng).unwrap().clone().mutate(0.05, &DEVICE);
+                let new_model = surviving_models
+                    .choose(&mut rng)
+                    .unwrap()
+                    .clone()
+                    .mutate(0.05, &DEVICE);
                 new_models.push(new_model);
             }
 
@@ -863,7 +864,6 @@ impl<const D: usize> World<D> {
             self.food_cells = (0..(N_CELLS + 1).pow(2)).map(|_| Vec::new()).collect();
             self.speechlet_cells = (0..(N_CELLS + 1).pow(2)).map(|_| Vec::new()).collect();
 
-            
             self.being_id = 0;
             self.ob_id = 0;
             self.food_id = 0;
@@ -878,10 +878,17 @@ impl<const D: usize> World<D> {
 
             surviving_models.extend(new_models);
             for m in surviving_models {
-                self.add_being(B_RADIUS, Vec2::new(
-                    rng.gen_range(B_RADIUS..W_FLOAT - B_RADIUS),
-                    rng.gen_range(B_RADIUS..W_FLOAT - B_RADIUS),
-                ), rng.gen_range(-PI..PI), B_START_ENERGY, [0.; GENOME_LEN], m);
+                self.add_being(
+                    B_RADIUS,
+                    Vec2::new(
+                        rng.gen_range(B_RADIUS..W_FLOAT - B_RADIUS),
+                        rng.gen_range(B_RADIUS..W_FLOAT - B_RADIUS),
+                    ),
+                    rng.gen_range(-PI..PI),
+                    B_START_ENERGY,
+                    [0.; GENOME_LEN],
+                    m,
+                );
             }
         }
     }
