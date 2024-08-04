@@ -1,4 +1,4 @@
-use being_nn::{Activation, Sigmoid, SumFxModel, Tanh};
+use being_nn::{tensorize_2dvec, Activation, Sigmoid, SumFxModel, Tanh};
 use ggez::{
     conf::{Backend, NumSamples, WindowMode, WindowSetup},
     event,
@@ -7,14 +7,14 @@ use ggez::{
     Context, GameResult,
 };
 use nn::Relu;
-use rand::{thread_rng, Rng};
+use rand::{thread_rng, Rng, seq::SliceRandom};
 use slotmap::{DefaultKey, SlotMap};
 use std::{
     borrow::{Borrow, BorrowMut},
     env,
     f32::consts::PI,
     path::PathBuf,
-    process::id,
+    process::{exit, id},
     thread::sleep,
     time::{Duration, SystemTime},
 };
@@ -36,6 +36,9 @@ pub mod consts {
     pub const W_FLOAT:                                  f32 = W_SIZE as f32;
     pub const W_USIZE:                                  u32 = W_SIZE as u32;
 
+    pub const B_START_COUNT:                          usize = 50;
+    pub const REWORLDING_THRESHOLD:                   usize = 10;
+
     pub const B_FOV:                                  isize = 10;
     pub const B_FOV_PX:                                 f32 = (B_FOV as usize * CELL_SIZE) as f32;
     pub const B_SPEED:                                  f32 = 0.5;
@@ -56,7 +59,7 @@ pub mod consts {
     pub const O_START_HEALTH:                           f32 = 25.;
     pub const F_START_AGE:                              f32 = 100.;
     pub const S_START_AGE:                              f32 = 5.;
-    pub const F_VAL:                                    f32 = 0.5;
+    pub const F_VAL:                                    f32 = 2.;
 
     pub const B_TIRE_RATE:                              f32 = 0.01;
     pub const O_AGE_RATE:                               f32 = 0.001;
@@ -76,8 +79,6 @@ pub mod consts {
 
     pub const SPEECHLET_LEN:                          usize = 8;                   // length of the sound vector a being can emit
     pub const B_OUTPUT_LEN:                           usize = 4 + SPEECHLET_LEN;   // (f-b, rotate, spawn obstruct, spawn_speechlet, *speechlet)
-
-    pub const REINCARNATION_THRESHOLD:                usize = 10;
     
     pub type BACKEND                                        = backend::NdArray;
     pub const DEVICE:       backend::ndarray::NdArrayDevice = backend::ndarray::NdArrayDevice::Cpu;
@@ -286,7 +287,10 @@ pub struct World<const D: usize> {
     speechlet_deaths: Vec<(DefaultKey, Vec2)>,
 
     fov_indices: Vec<(isize, isize)>,
+    
     age: usize,
+    generation: usize
+
 }
 
 impl<const D: usize> World<D> {
@@ -315,7 +319,9 @@ impl<const D: usize> World<D> {
                 .flat_map(|i| (-B_FOV..=B_FOV).map(move |j| (i, j)))
                 .filter(|(i, j)| i.pow(2) + j.pow(2) <= B_FOV.pow(2))
                 .collect(),
+            
             age: 0,
+            generation: 0
         }
     }
 
@@ -324,7 +330,7 @@ impl<const D: usize> World<D> {
         let mut world = World::new();
         let mut rng = thread_rng();
 
-        for _ in 0..100 {
+        for _ in 0..B_START_COUNT {
             let being_config = (
                 vec![3 + GENOME_LEN, 11, 12, 8],
                 vec![
@@ -354,11 +360,11 @@ impl<const D: usize> World<D> {
             );
             let self_config = (
                 vec![5, 8],
-                vec![Activation::Identity, Activation::Tanh(Tanh {})],
+                vec![Activation::Tanh(Tanh {}), Activation::Tanh(Tanh {})],
             );
             let final_config = (
                 vec![32, B_OUTPUT_LEN],
-                vec![Activation::Identity, Activation::Tanh(Tanh {})],
+                vec![Activation::Tanh(Tanh {}), Activation::Tanh(Tanh {})],
             );
 
             world.add_being(
@@ -511,16 +517,13 @@ impl<const D: usize> World<D> {
 
                     if !oob(newij, being.radius) {
                         being.pos_update += move_vec / s;
-                        being.rotation_update = being.output[1] / s;
+                        being.rotation_update += (being.output[1] * PI) / s;
                     }
-                    // else {
-                    // maybe
-                    // being.pos = Vec2::new(
-                    // thread_rng().gen_range(1.0..W_FLOAT - 1.),
-                    // thread_rng().gen_range(1.0..W_FLOAT - 1.),
-                    // );
-                    // being.energy_update -= HEADON_B_HITS_O_DAMAGE / s / 10.;
-                    // }
+
+                    else {
+                        let newij = -dir_from_theta(being.rotation) * 1.5; // hacky
+                        being.pos_update += newij;
+                    }
                 });
         }
     }
@@ -607,7 +610,6 @@ impl<const D: usize> World<D> {
 
                             for f_id in &self.food_cells[nij] {
                                 // for a food similarly
-
                                 let (b, __) = self.beings_and_models.get_mut(*id1).unwrap();
                                 let f = self.foods.get_mut(*f_id);
 
@@ -773,46 +775,27 @@ impl<const D: usize> World<D> {
                 b.food_obstruct_inputs.push(vec![0.; 4]);
                 b.speechlet_inputs.push(vec![0.; SPEECHLET_LEN]);
 
-                let being_tensor = Tensor::<BACKEND, 1>::from_floats(
-                    b.being_inputs
-                        .clone()
-                        .into_iter()
-                        .flatten()
-                        .collect::<Vec<f32>>()
-                        .as_slice(),
+                let being_tensor = tensorize_2dvec(
+                    &b.being_inputs,
+                    [b.being_inputs.len(), GENOME_LEN + 3],
                     &DEVICE,
-                )
-                .reshape([b.being_inputs.len(), GENOME_LEN + 3]);
-
-                let fo_tensor = Tensor::<BACKEND, 1>::from_floats(
-                    b.food_obstruct_inputs
-                        .clone()
-                        .into_iter()
-                        .flatten()
-                        .collect::<Vec<f32>>()
-                        .as_slice(),
+                );
+                let fo_tensor = tensorize_2dvec(
+                    &b.food_obstruct_inputs,
+                    [b.food_obstruct_inputs.len(), 4],
                     &DEVICE,
-                )
-                .reshape([b.food_obstruct_inputs.len(), 4]);
-
-                let speechlet_tensor = Tensor::<BACKEND, 1>::from_floats(
-                    b.speechlet_inputs
-                        .clone()
-                        .into_iter()
-                        .flatten()
-                        .collect::<Vec<f32>>()
-                        .as_slice(),
+                );
+                let speechlet_tensor = tensorize_2dvec(
+                    &b.speechlet_inputs,
+                    [b.speechlet_inputs.len(), SPEECHLET_LEN],
                     &DEVICE,
-                )
-                .reshape([b.speechlet_inputs.len(), SPEECHLET_LEN]);
+                );
 
                 let mut self_vec = is_border_in_sight(b.pos, b.rotation).to_vec();
                 self_vec.extend([b.energy / B_START_ENERGY]);
 
                 let self_tensor =
                     Tensor::<BACKEND, 1>::from_floats(self_vec.as_slice(), &DEVICE).reshape([1, 5]);
-
-                model.clone().mutate(0.1, &DEVICE);
 
                 b.being_inputs.clear();
                 b.food_obstruct_inputs.clear();
@@ -830,7 +813,7 @@ impl<const D: usize> World<D> {
 
                 b.output = output;
 
-                if b.output[2] > 0.5 {
+                if b.output[2] > 0. {
                     b.energy_update -= SPAWN_O_RATIO * B_START_ENERGY;
                     obstruct_queue.push(b.pos + dir_from_theta(b.rotation) * 2.);
                 }
@@ -840,7 +823,7 @@ impl<const D: usize> World<D> {
                     speechlet[i] = b.output[i + 3];
                 });
 
-                if b.output[3] > 0.5 {
+                if b.output[3] > 0. {
                     b.energy_update -= SPAWN_S_RATIO * B_START_ENERGY;
                     speechlet_queue.push((b.pos, speechlet));
                 }
@@ -854,13 +837,52 @@ impl<const D: usize> World<D> {
         }
     }
 
-    pub fn reworlding(mut self) {
-        if self.beings_and_models.len() < REINCARNATION_THRESHOLD {
-            let surviving_models: Vec<SumFxModel<BACKEND>> = self
+    pub fn reworld(&mut self) {
+        if self.beings_and_models.len() < REWORLDING_THRESHOLD {
+            let mut surviving_models: Vec<SumFxModel<BACKEND>> = self
                 .beings_and_models
-                .into_iter()
-                .map(|(_, (_, m))| m)
+                .iter_mut()
+                .map(|(_, (_, m))| m.clone())
                 .collect();
+
+            let mut new_models: Vec<SumFxModel<BACKEND>> = vec![];
+
+            let mut rng = thread_rng();
+            for _ in 0..(B_START_COUNT - surviving_models.len()) {
+                let new_model = surviving_models.choose(&mut rng).unwrap().clone().mutate(0.05, &DEVICE);
+                new_models.push(new_model);
+            }
+
+            self.beings_and_models.clear();
+            self.foods.clear();
+            self.obstructs.clear();
+            self.speechlets.clear();
+
+            self.being_cells = (0..(N_CELLS + 1).pow(2)).map(|_| Vec::new()).collect();
+            self.obstruct_cells = (0..(N_CELLS + 1).pow(2)).map(|_| Vec::new()).collect();
+            self.food_cells = (0..(N_CELLS + 1).pow(2)).map(|_| Vec::new()).collect();
+            self.speechlet_cells = (0..(N_CELLS + 1).pow(2)).map(|_| Vec::new()).collect();
+
+            
+            self.being_id = 0;
+            self.ob_id = 0;
+            self.food_id = 0;
+
+            self.being_deaths.clear();
+            self.food_deaths.clear();
+            self.obstruct_deaths.clear();
+            self.speechlet_deaths.clear();
+
+            self.age = 0;
+            self.generation += 1;
+
+            surviving_models.extend(new_models);
+            for m in surviving_models {
+                self.add_being(B_RADIUS, Vec2::new(
+                    rng.gen_range(B_RADIUS..W_FLOAT - B_RADIUS),
+                    rng.gen_range(B_RADIUS..W_FLOAT - B_RADIUS),
+                ), rng.gen_range(-PI..PI), B_START_ENERGY, [0.; GENOME_LEN], m);
+            }
         }
     }
 
@@ -870,7 +892,6 @@ impl<const D: usize> World<D> {
             self.check_collisions(substeps);
             self.update_cells();
         }
-
         self.perform_being_outputs();
         self.grow_speechlets();
         self.tire_beings();
@@ -878,6 +899,8 @@ impl<const D: usize> World<D> {
         self.age_obstructs();
         self.soften_speechlets();
         self.repop_foods();
+
+        self.reworld();
 
         self.age += 1;
     }
@@ -917,7 +940,8 @@ impl<const D: usize> event::EventHandler<ggez::GameError> for MainState<D> {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
         if self.world.age % 60 == 0 {
             println!(
-                "timestep: {}, fps: {}, beings: {}, foods: {}",
+                "generation: {}, timestep: {}, fps: {}, beings: {}, foods: {}",
+                self.world.generation,
                 self.world.age,
                 ctx.time.fps(),
                 self.world.beings_and_models.len(),

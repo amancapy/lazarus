@@ -10,6 +10,22 @@ use burn::nn::Relu;
 use burn::tensor::backend::Backend;
 use burn::tensor::{Tensor, T};
 
+pub fn tensorize_2dvec<B: Backend>(
+    vec: &Vec<Vec<f32>>,
+    shape: [usize; 2],
+    device: &Device<B>,
+) -> Tensor<B, 2> {
+    Tensor::<B, 1>::from_floats(
+        vec.clone()
+            .into_iter()
+            .flatten()
+            .collect::<Vec<f32>>()
+            .as_slice(),
+        device,
+    )
+    .reshape(shape)
+}
+
 #[derive(Module, Clone, Debug, Default)]
 pub struct Tanh {}
 
@@ -207,9 +223,10 @@ impl<B: Backend> SumFxModel<B> {
         final_output
     }
 
-    pub fn mutate(self, recomb_weight: f32, device: &Device<B>) {
-        let models: Vec<SumFxModel<B>> = vec![];
-        for mut model in [
+    pub fn mutate(self, recomb_weight: f32, device: &Device<B>) -> SumFxModel<B> {
+        let mut new_models: Vec<FF<B>> = vec![];
+
+        for model in [
             self.being_model,
             self.fo_model,
             self.speechlet_model,
@@ -237,14 +254,30 @@ impl<B: Backend> SumFxModel<B> {
                         ))
                     }
                 };
-                
+
                 let newlin = Linear {
                     weight: weight,
                     bias: bias,
                 };
                 newlins.push(newlin);
             }
+
+            let new_model = FF {
+                lins: newlins,
+                acts: model.acts.clone(),
+            };
+            new_models.push(new_model);
         }
+
+        return SumFxModel {
+            being_model: new_models[0].to_owned(),
+            fo_model: new_models[1].to_owned(),
+            speechlet_model: new_models[2].to_owned(),
+            self_model: new_models[3].to_owned(),
+            final_model: new_models[4].to_owned(),
+
+            concat_before_final: self.concat_before_final,
+        };
     }
 }
 
