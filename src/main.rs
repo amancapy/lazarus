@@ -1,6 +1,6 @@
 use being_nn::{Activation, Sigmoid, SumFxModel, Tanh};
 use ggez::{
-    conf::{NumSamples, WindowMode, WindowSetup},
+    conf::{Backend, NumSamples, WindowMode, WindowSetup},
     event,
     glam::*,
     graphics::{Canvas, Color, DrawParam, Image, InstanceArray},
@@ -10,12 +10,16 @@ use nn::Relu;
 use rand::{thread_rng, Rng};
 use slotmap::{DefaultKey, SlotMap};
 use std::{
-    borrow::{Borrow, BorrowMut}, env, f32::consts::PI, path::PathBuf, process::id, thread::sleep, time::{Duration, SystemTime}
+    borrow::{Borrow, BorrowMut},
+    env,
+    f32::consts::PI,
+    path::PathBuf,
+    process::id,
+    thread::sleep,
+    time::{Duration, SystemTime},
 };
 
-use burn::{
-    prelude::*,
-};
+use burn::prelude::*;
 
 mod being_nn;
 
@@ -33,8 +37,8 @@ pub mod consts {
     pub const W_USIZE:                                  u32 = W_SIZE as u32;
 
     pub const B_FOV:                                  isize = 10;
-
-    pub const B_SPEED:                                  f32 = 0.1;
+    pub const B_FOV_PX:                                 f32 = (B_FOV as usize * CELL_SIZE) as f32;
+    pub const B_SPEED:                                  f32 = 0.5;
     pub const B_RADIUS:                                 f32 = 3.5;
     pub const O_RADIUS:                                 f32 = 3.;
     pub const F_RADIUS:                                 f32 = 2.5;
@@ -50,9 +54,9 @@ pub mod consts {
 
     pub const B_START_ENERGY:                           f32 = 10.;
     pub const O_START_HEALTH:                           f32 = 25.;
-    pub const F_START_AGE:                              f32 = 5.;
+    pub const F_START_AGE:                              f32 = 100.;
     pub const S_START_AGE:                              f32 = 5.;
-    pub const F_VAL:                                    f32 = 1.;
+    pub const F_VAL:                                    f32 = 0.5;
 
     pub const B_TIRE_RATE:                              f32 = 0.01;
     pub const O_AGE_RATE:                               f32 = 0.001;
@@ -68,7 +72,7 @@ pub mod consts {
     pub const LOW_ENERGY_SPEED_DAMP_RATE:               f32 = 0.2;                 // beings slow down when their energy runs low
     pub const OFF_DIR_MOVEMENT_SPEED_DAMP_RATE:         f32 = 0.5;                 // beings slow down when not moving face-forward
 
-    pub const N_FOOD_SPAWN_PER_STEP:                  usize = 1; // EVEN 1 IS TOO HIGH. NEED TO f32 FOOD REPOP LOGIC 
+    pub const N_FOOD_SPAWN_PER_STEP:                  usize = 1; 
 
     pub const SPEECHLET_LEN:                          usize = 8;                   // length of the sound vector a being can emit
     pub const B_OUTPUT_LEN:                           usize = 4 + SPEECHLET_LEN;   // (f-b, rotate, spawn obstruct, spawn_speechlet, *speechlet)
@@ -136,7 +140,7 @@ pub fn b_collides_b(b1: &Being, b2: &Being) -> (f32, f32, Vec2, [f32; 3 + GENOME
     let other_genome = b2.genome.clone();
     let rel_vec = [
         b1.pos.angle_between(b2.pos) / PI,
-        centre_dist / B_FOV as f32,
+        centre_dist / B_FOV_PX,
         b2.energy / B_START_ENERGY,
     ];
 
@@ -163,7 +167,7 @@ pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2, [f32; 4]) {
         // why is there a 0.?
         [
             0.,
-            centre_dist / B_FOV as f32,
+            centre_dist / B_FOV_PX,
             b.pos.angle_between(o.pos) / PI,
             o.age / O_START_HEALTH,
         ],
@@ -177,7 +181,7 @@ pub fn b_collides_f(b: &Being, f: &Food) -> (f32, [f32; 4]) {
         r1 + r2 - centre_dist,
         [
             1.,
-            centre_dist / B_FOV as f32,
+            centre_dist / B_FOV_PX,
             b.pos.angle_between(f.pos) / PI,
             f.age / F_START_AGE,
         ],
@@ -190,6 +194,28 @@ pub fn b_collides_s(b: &Being, s: &Speechlet) -> f32 {
     let (r1, r2) = (b.radius, S_RADIUS);
 
     r1 + r2 - centre_dist
+}
+
+pub fn is_border_in_sight(pos: Vec2, rot: f32) -> [f32; 4] {
+    let (x, y) = (pos.x, pos.y);
+    let mut rel_vec: [f32; 4] = [1., 0., 1., 0.];
+    let w = W_SIZE as f32;
+    if x + B_FOV_PX > w {
+        rel_vec[0] = (w - x) / B_FOV_PX;
+        rel_vec[1] = rot + 0.5;
+    } else if x - B_FOV_PX < 0. {
+        rel_vec[0] = x / B_FOV_PX;
+        rel_vec[1] = rot - 0.5;
+    }
+    if y + B_FOV_PX > w {
+        rel_vec[2] = (w - y) / B_FOV_PX;
+        rel_vec[3] = rot + 1.;
+    } else if y - B_FOV_PX < 0. {
+        rel_vec[2] = y / B_FOV_PX;
+        rel_vec[3] = rot;
+    }
+
+    rel_vec
 }
 
 #[derive(Debug)]
@@ -298,36 +324,40 @@ impl<const D: usize> World<D> {
         let mut world = World::new();
         let mut rng = thread_rng();
 
-        for i in 0..100 {
+        for _ in 0..100 {
             let being_config = (
-                vec![3 + GENOME_LEN, 11, 12, 13],
+                vec![3 + GENOME_LEN, 11, 12, 8],
                 vec![
-                    Activation::Identity,
-                    Activation::Identity,
-                    Activation::Identity,
-                    Activation::Identity,
+                    Activation::Tanh(Tanh {}),
+                    Activation::Tanh(Tanh {}),
+                    Activation::Tanh(Tanh {}),
+                    Activation::Tanh(Tanh {}),
                 ],
             );
             let fo_config = (
-                vec![4, 11, 12, 13],
+                vec![4, 11, 12, 8],
                 vec![
-                    Activation::Identity,
-                    Activation::Identity,
-                    Activation::Identity,
-                    Activation::Identity,
+                    Activation::Tanh(Tanh {}),
+                    Activation::Tanh(Tanh {}),
+                    Activation::Tanh(Tanh {}),
+                    Activation::Tanh(Tanh {}),
                 ],
             );
             let speechlet_config = (
-                vec![SPEECHLET_LEN, 11, 12, 13],
+                vec![SPEECHLET_LEN, 11, 12, 8],
                 vec![
-                    Activation::Identity,
-                    Activation::Identity,
-                    Activation::Identity,
-                    Activation::Identity,
+                    Activation::Tanh(Tanh {}),
+                    Activation::Tanh(Tanh {}),
+                    Activation::Tanh(Tanh {}),
+                    Activation::Tanh(Tanh {}),
                 ],
             );
+            let self_config = (
+                vec![5, 8],
+                vec![Activation::Identity, Activation::Tanh(Tanh {})],
+            );
             let final_config = (
-                vec![13, B_OUTPUT_LEN],
+                vec![32, B_OUTPUT_LEN],
                 vec![Activation::Identity, Activation::Tanh(Tanh {})],
             );
 
@@ -344,28 +374,30 @@ impl<const D: usize> World<D> {
                     being_config,
                     fo_config,
                     speechlet_config,
+                    self_config,
                     final_config,
+                    true,
                     &DEVICE,
                 ),
             );
         }
 
-        for i in 0..1000 {
-            world.add_obstruct(Vec2::new(
-                rng.gen_range(1.0..W_FLOAT - 1.),
-                rng.gen_range(1.0..W_FLOAT - 1.),
-            ));
-        }
+        // for i in 0..1000 {
+        //     world.add_obstruct(Vec2::new(
+        //         rng.gen_range(1.0..W_FLOAT - 1.),
+        //         rng.gen_range(1.0..W_FLOAT - 1.),
+        //     ));
+        // }
 
-        for i in 0..2000 {
-            world.add_food(
-                Vec2::new(
-                    rng.gen_range(1.0..W_FLOAT - 1.),
-                    rng.gen_range(1.0..W_FLOAT - 1.),
-                ),
-                F_VAL,
-            );
-        }
+        // for i in 0..2000 {
+        //     world.add_food(
+        //         Vec2::new(
+        //             rng.gen_range(1.0..W_FLOAT - 1.),
+        //             rng.gen_range(1.0..W_FLOAT - 1.),
+        //         ),
+        //         F_VAL,
+        //     );
+        // }
 
         world
     }
@@ -468,7 +500,7 @@ impl<const D: usize> World<D> {
         for _ in 0..substeps {
             self.beings_and_models
                 .iter_mut()
-                .for_each(|(k, (being, _))| {
+                .for_each(|(_, (being, _))| {
                     let being_rotation = dir_from_theta(being.rotation);
                     let move_vec = being.output[0]
                         * being_rotation
@@ -480,20 +512,21 @@ impl<const D: usize> World<D> {
                     if !oob(newij, being.radius) {
                         being.pos_update += move_vec / s;
                         being.rotation_update = being.output[1] / s;
-                    } else {
-                        // maybe
-                        being.pos = Vec2::new(
-                            thread_rng().gen_range(1.0..W_FLOAT - 1.),
-                            thread_rng().gen_range(1.0..W_FLOAT - 1.),
-                        );
-                        being.energy_update -= HEADON_B_HITS_O_DAMAGE / s / 10.;
                     }
+                    // else {
+                    // maybe
+                    // being.pos = Vec2::new(
+                    // thread_rng().gen_range(1.0..W_FLOAT - 1.),
+                    // thread_rng().gen_range(1.0..W_FLOAT - 1.),
+                    // );
+                    // being.energy_update -= HEADON_B_HITS_O_DAMAGE / s / 10.;
+                    // }
                 });
         }
     }
 
     pub fn grow_speechlets(&mut self) {
-        self.speechlets.iter_mut().for_each(|(k, s)| {
+        self.speechlets.iter_mut().for_each(|(_, s)| {
             s.radius += S_RADIUS;
         });
     }
@@ -773,23 +806,31 @@ impl<const D: usize> World<D> {
                 )
                 .reshape([b.speechlet_inputs.len(), SPEECHLET_LEN]);
 
+                let mut self_vec = is_border_in_sight(b.pos, b.rotation).to_vec();
+                self_vec.extend([b.energy / B_START_ENERGY]);
+
+                let self_tensor =
+                    Tensor::<BACKEND, 1>::from_floats(self_vec.as_slice(), &DEVICE).reshape([1, 5]);
+
+                model.clone().mutate(0.1, &DEVICE);
+
                 b.being_inputs.clear();
                 b.food_obstruct_inputs.clear();
                 b.speechlet_inputs.clear();
 
                 let model_output = model
-                    .forward(being_tensor, fo_tensor, speechlet_tensor)
+                    .forward(being_tensor, fo_tensor, speechlet_tensor, self_tensor)
                     .into_data()
                     .value;
-                
+
                 let mut output = [0.; B_OUTPUT_LEN];
                 (0..B_OUTPUT_LEN).into_iter().for_each(|i| {
                     output[i] = model_output[i];
                 });
 
                 b.output = output;
-                
-                if b.output[2] > 0.9999 {
+
+                if b.output[2] > 0.5 {
                     b.energy_update -= SPAWN_O_RATIO * B_START_ENERGY;
                     obstruct_queue.push(b.pos + dir_from_theta(b.rotation) * 2.);
                 }
@@ -799,7 +840,7 @@ impl<const D: usize> World<D> {
                     speechlet[i] = b.output[i + 3];
                 });
 
-                if b.output[3] > 0.9999 {
+                if b.output[3] > 0.5 {
                     b.energy_update -= SPAWN_S_RATIO * B_START_ENERGY;
                     speechlet_queue.push((b.pos, speechlet));
                 }
@@ -815,9 +856,11 @@ impl<const D: usize> World<D> {
 
     pub fn reworlding(mut self) {
         if self.beings_and_models.len() < REINCARNATION_THRESHOLD {
-            let surviving_models: Vec<SumFxModel<BACKEND>> = self.beings_and_models.into_iter().map(|(_, (_, m))| {
-                m
-            }).collect();
+            let surviving_models: Vec<SumFxModel<BACKEND>> = self
+                .beings_and_models
+                .into_iter()
+                .map(|(_, (_, m))| m)
+                .collect();
         }
     }
 
@@ -941,7 +984,6 @@ impl<const D: usize> event::EventHandler<ggez::GameError> for MainState<D> {
 }
 
 pub fn run() -> GameResult {
-    let device = burn::backend::ndarray::NdArrayDevice::default();
     let world = World::<2>::standard_world();
 
     let resource_dir = if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
@@ -976,7 +1018,6 @@ pub fn run() -> GameResult {
 
 // to let it rip without rendering, mainly to gauge overhead of rendering on top of step()
 pub fn gauge() {
-    let device = burn::backend::ndarray::NdArrayDevice::default();
     let mut w = World::<2>::standard_world();
     let now = SystemTime::now();
     loop {
@@ -1001,5 +1042,5 @@ pub fn main() {
     assert!(B_RADIUS < CELL_SIZE as f32);
 
     // gauge();
-    run();
+    _ = run();
 }
