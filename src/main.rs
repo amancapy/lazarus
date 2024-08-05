@@ -27,8 +27,8 @@ mod being_nn;
 pub mod consts {
     use burn::backend;
 
-    pub const W_SIZE:                                 usize = 1000;
-    pub const N_CELLS:                                usize = 250;
+    pub const W_SIZE:                                 usize = 625;
+    pub const N_CELLS:                                usize = 125;
     pub const CELL_SIZE:                              usize = W_SIZE / N_CELLS;
     pub const CELL_SIZE_FLOAT:                          f32 = CELL_SIZE as f32;
     pub const W_FLOAT:                                  f32 = W_SIZE as f32;
@@ -41,7 +41,7 @@ pub mod consts {
     pub const B_FOV_PX:                                 f32 = (B_FOV as usize * CELL_SIZE) as f32;
     pub const B_SPEED:                                  f32 = 0.5;
     pub const B_RADIUS:                                 f32 = 3.5;
-    pub const O_RADIUS:                                 f32 = 3.;
+    pub const O_RADIUS:                                 f32 = 2.75;
     pub const F_RADIUS:                                 f32 = 2.5;
     pub const S_RADIUS:                                 f32 = 1.5;
 
@@ -60,8 +60,9 @@ pub mod consts {
     pub const S_START_AGE:                              f32 = 5.;
     pub const F_VAL:                                    f32 = 2.;
     
-    pub const B_TIRE_RATE:                              f32 = 0.005;
-    pub const B_MOVE_TIRE_RATE_CAP:                     f32 = 0.005; // TBD
+    pub const B_TIRE_RATE:                              f32 = 0.01;
+    pub const B_MOVE_TIRE_RATE:                         f32 = 0.005;
+    pub const B_ROT_TIRE_RATE:                          f32 = 0.005;
     pub const O_AGE_RATE:                               f32 = 0.001;
     pub const F_AGE_RATE:                               f32 = 0.01;
     pub const S_SOFTEN_RATE:                            f32 = 0.1;
@@ -71,11 +72,16 @@ pub mod consts {
     pub const HEADON_B_HITS_O_DAMAGE:                   f32 = 0.1;
     pub const SPAWN_O_RATIO:                            f32 = 0.1;                 // fraction of start_energy spent to spawn obstruct
     pub const SPAWN_S_RATIO:                            f32 = 0.05;                // fraction of start_energy spent to speak
+    pub const OOB_PENALTY:                              f32 = 0.25;
 
     pub const LOW_ENERGY_SPEED_DAMP_RATE:               f32 = 0.2;                 // beings slow down when their energy runs low
     pub const OFF_DIR_MOVEMENT_SPEED_DAMP_RATE:         f32 = 0.5;                 // beings slow down when not moving face-forward
 
-    pub const N_FOOD_SPAWN_PER_STEP:                  usize = 1; 
+    pub const N_FOOD_SPAWN_PER_STEP:                  usize = 1;
+    
+    pub static mut MAX_FOOD:                          usize = 750;
+    pub const MIN_FOOD:                               usize = 25;
+    pub const MAX_FOOD_REDUCTION:                     usize = 5;
 
     pub const SPEECHLET_LEN:                          usize = 8;                   // length of the sound vector a being can emit
     pub const B_OUTPUT_LEN:                           usize = 4 + SPEECHLET_LEN;   // (f-b, rotate, spawn obstruct, spawn_speechlet, *speechlet)
@@ -125,12 +131,12 @@ pub fn bot_border_trespass(j: f32, r: f32) -> bool {
 }
 
 // out of bounds
-pub fn oob(ij: Vec2, r: f32) -> bool {
-    let (i, j) = (ij[0], ij[1]);
-    lef_border_trespass(i, r)
-        || rig_border_trespass(i, r)
-        || top_border_trespass(j, r)
-        || bot_border_trespass(j, r)
+pub fn oob(xy: Vec2, r: f32) -> bool {
+    let (x, y) = (xy[0], xy[1]);
+    lef_border_trespass(x, r)
+        || rig_border_trespass(x, r)
+        || top_border_trespass(y, r)
+        || bot_border_trespass(y, r)
 }
 
 pub fn b_collides_b(b1: &Being, b2: &Being) -> (f32, f32, Vec2, [f32; 3 + GENOME_LEN]) {
@@ -156,7 +162,7 @@ pub fn b_collides_b(b1: &Being, b2: &Being) -> (f32, f32, Vec2, [f32; 3 + GENOME
     (r1 + r2 - centre_dist, centre_dist, c1c2, full_vec)
 }
 
-pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2, [f32; 4]) {
+pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2, [f32; 5]) {
     let c1c2 = o.pos - b.pos;
     let centre_dist = c1c2.length();
     let (r1, r2) = (b.radius, O_RADIUS);
@@ -165,17 +171,17 @@ pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2, [f32; 4]) {
         r1 + r2 - centre_dist,
         centre_dist,
         c1c2,
-        // why is there a 0.?
         [
             0.,
             centre_dist / B_FOV_PX,
             b.pos.angle_between(o.pos) / PI,
             o.age / O_START_HEALTH,
+            0.,
         ],
     )
 }
 
-pub fn b_collides_f(b: &Being, f: &Food) -> (f32, [f32; 4]) {
+pub fn b_collides_f(b: &Being, f: &Food) -> (f32, [f32; 5]) {
     let centre_dist = b.pos.distance(f.pos);
     let (r1, r2) = (b.radius, 1.);
     (
@@ -185,6 +191,7 @@ pub fn b_collides_f(b: &Being, f: &Food) -> (f32, [f32; 4]) {
             centre_dist / B_FOV_PX,
             b.pos.angle_between(f.pos) / PI,
             f.age / F_START_AGE,
+            F_VAL,
         ],
     )
 }
@@ -253,6 +260,7 @@ pub struct Food {
     val: f32,
     eaten: bool,
 
+    is_flesh: bool,
     id: usize,
 }
 
@@ -290,6 +298,7 @@ pub struct World<const D: usize> {
 
     age: usize,
     generation: usize,
+    last_survivors: Vec<SumFxModel<BACKEND>>,
 }
 
 impl<const D: usize> World<D> {
@@ -321,6 +330,7 @@ impl<const D: usize> World<D> {
 
             age: 0,
             generation: 0,
+            last_survivors: vec![],
         }
     }
 
@@ -330,42 +340,6 @@ impl<const D: usize> World<D> {
         let mut rng = thread_rng();
 
         for _ in 0..B_START_COUNT {
-            let being_config = (
-                vec![3 + GENOME_LEN, 11, 12, 8],
-                vec![
-                    Activation::Tanh(Tanh {}),
-                    Activation::Tanh(Tanh {}),
-                    Activation::Tanh(Tanh {}),
-                    Activation::Tanh(Tanh {}),
-                ],
-            );
-            let fo_config = (
-                vec![4, 11, 12, 8],
-                vec![
-                    Activation::Tanh(Tanh {}),
-                    Activation::Tanh(Tanh {}),
-                    Activation::Tanh(Tanh {}),
-                    Activation::Tanh(Tanh {}),
-                ],
-            );
-            let speechlet_config = (
-                vec![SPEECHLET_LEN, 11, 12, 8],
-                vec![
-                    Activation::Tanh(Tanh {}),
-                    Activation::Tanh(Tanh {}),
-                    Activation::Tanh(Tanh {}),
-                    Activation::Tanh(Tanh {}),
-                ],
-            );
-            let self_config = (
-                vec![5, 8],
-                vec![Activation::Tanh(Tanh {}), Activation::Tanh(Tanh {})],
-            );
-            let final_config = (
-                vec![32, B_OUTPUT_LEN],
-                vec![Activation::Tanh(Tanh {}), Activation::Tanh(Tanh {})],
-            );
-
             world.add_being(
                 B_RADIUS,
                 Vec2::new(
@@ -375,34 +349,22 @@ impl<const D: usize> World<D> {
                 rng.gen_range(-PI..PI),
                 B_START_ENERGY,
                 [0.; GENOME_LEN],
-                SumFxModel::new(
-                    being_config,
-                    fo_config,
-                    speechlet_config,
-                    self_config,
-                    final_config,
-                    true,
-                    &DEVICE,
-                ),
+                SumFxModel::standard_model(&DEVICE),
             );
         }
 
-        // for i in 0..1000 {
-        //     world.add_obstruct(Vec2::new(
-        //         rng.gen_range(1.0..W_FLOAT - 1.),
-        //         rng.gen_range(1.0..W_FLOAT - 1.),
-        //     ));
-        // }
-
-        // for i in 0..2000 {
-        //     world.add_food(
-        //         Vec2::new(
-        //             rng.gen_range(1.0..W_FLOAT - 1.),
-        //             rng.gen_range(1.0..W_FLOAT - 1.),
-        //         ),
-        //         F_VAL,
-        //     );
-        // }
+        unsafe {
+            for _ in 0..MAX_FOOD {
+                world.add_food(
+                    Vec2::new(
+                        rng.gen_range(1.0..W_FLOAT - 1.),
+                        rng.gen_range(1.0..W_FLOAT - 1.),
+                    ),
+                    F_VAL,
+                    false,
+                );
+            }
+        }
 
         world
     }
@@ -463,7 +425,7 @@ impl<const D: usize> World<D> {
         self.ob_id += 1;
     }
 
-    pub fn add_food(&mut self, pos: Vec2, val: f32) {
+    pub fn add_food(&mut self, pos: Vec2, val: f32, is_flesh: bool) {
         let (i, j) = pos_to_cell(pos);
 
         let food = Food {
@@ -471,6 +433,7 @@ impl<const D: usize> World<D> {
             age: F_START_AGE,
             val: val,
             eaten: false,
+            is_flesh: is_flesh,
 
             id: self.food_id,
         };
@@ -509,17 +472,26 @@ impl<const D: usize> World<D> {
                     let being_rotation = dir_from_theta(being.rotation);
                     let move_vec = being.output[0]
                         * being_rotation
-                        * ((B_SPEED
-                            * (being.energy / (B_START_ENERGY * LOW_ENERGY_SPEED_DAMP_RATE)))
-                            / s);
-                    let newij = being.pos + move_vec;
+                        * (being.energy / (B_START_ENERGY * LOW_ENERGY_SPEED_DAMP_RATE))
+                        * B_SPEED;
+                    let newxy = being.pos + move_vec;
 
-                    if !oob(newij, being.radius) {
-                        being.pos_update += move_vec / s;
+                    // println!("{} {}", being.output[0], move_vec.length());
+
+                    if !oob(newxy, being.radius) {
+                        let pos_update = move_vec / s;
+                        let rot_update = (being.output[1] * PI) / s;
+
+                        being.pos_update += pos_update;
                         being.rotation_update += (being.output[1] * PI) / s;
+
+                        being.energy_update -= (pos_update.length() / B_SPEED) * B_MOVE_TIRE_RATE;
+                        being.energy_update -= (rot_update.abs() / PI) * B_ROT_TIRE_RATE;
                     } else {
-                        let newij = -dir_from_theta(being.rotation) * 1.5; // hacky
-                        being.pos_update += newij;
+                        let move_vec = -dir_from_theta(being.rotation) * 1.5; // hacky
+                        being.pos_update += move_vec / s;
+
+                        being.energy_update -= OOB_PENALTY;
                     }
                 });
         }
@@ -644,9 +616,10 @@ impl<const D: usize> World<D> {
     pub fn update_cells(&mut self) {
         for (k, (b, _)) in &mut self.beings_and_models {
             let new_pos = b.pos + b.pos_update;
-
+            // println!("{}", b.pos_update.length());
             b.energy += b.energy_update;
             b.rotation += b.rotation_update;
+
             b.energy_update = 0.;
             b.rotation_update = 0.;
 
@@ -691,7 +664,7 @@ impl<const D: usize> World<D> {
 
                 let food_pos = *pos + dvec;
                 if !oob(food_pos, F_RADIUS) {
-                    self.add_food(food_pos, B_DEATH_ENERGY / B_SCATTER_RADIUS as f32);
+                    self.add_food(food_pos, B_DEATH_ENERGY / B_SCATTER_RADIUS as f32, true);
                 };
             }
         }
@@ -754,9 +727,20 @@ impl<const D: usize> World<D> {
 
     pub fn repop_foods(&mut self) {
         let mut rng = thread_rng();
-        for _ in 0..N_FOOD_SPAWN_PER_STEP {
-            let ij = Vec2::new(rng.gen_range(1.0..W_FLOAT), rng.gen_range(1.0..W_FLOAT));
-            self.add_food(ij, F_VAL);
+        unsafe {
+            for _ in 0..N_FOOD_SPAWN_PER_STEP {
+                if self
+                    .foods
+                    .iter()
+                    .filter(|(_, f)| !f.is_flesh)
+                    .collect::<Vec<(DefaultKey, &Food)>>()
+                    .len()
+                    < MAX_FOOD
+                {
+                    let ij = Vec2::new(rng.gen_range(1.0..W_FLOAT), rng.gen_range(1.0..W_FLOAT));
+                    self.add_food(ij, F_VAL, false);
+                }
+            }
         }
     }
 
@@ -768,9 +752,9 @@ impl<const D: usize> World<D> {
         self.beings_and_models
             .iter_mut()
             .for_each(|(_, (b, model))| {
-                b.being_inputs.push(vec![0.; 3 + GENOME_LEN]);
-                b.food_obstruct_inputs.push(vec![0.; 4]);
-                b.speechlet_inputs.push(vec![0.; SPEECHLET_LEN]);
+                b.being_inputs.push(vec![-1.; 3 + GENOME_LEN]);
+                b.food_obstruct_inputs.push(vec![-1.; 5]);
+                b.speechlet_inputs.push(vec![-1.; SPEECHLET_LEN]);
 
                 let being_tensor = tensorize_2dvec(
                     &b.being_inputs,
@@ -779,7 +763,7 @@ impl<const D: usize> World<D> {
                 );
                 let fo_tensor = tensorize_2dvec(
                     &b.food_obstruct_inputs,
-                    [b.food_obstruct_inputs.len(), 4],
+                    [b.food_obstruct_inputs.len(), 5],
                     &DEVICE,
                 );
                 let speechlet_tensor = tensorize_2dvec(
@@ -836,6 +820,13 @@ impl<const D: usize> World<D> {
 
     pub fn reworld(&mut self) {
         if self.beings_and_models.len() < REWORLDING_THRESHOLD {
+            unsafe {
+                if MAX_FOOD > MIN_FOOD {
+                    MAX_FOOD -= MAX_FOOD_REDUCTION;
+                }
+            }
+            println!("generation: {}, world age: {}", self.generation, self.age);
+
             let mut surviving_models: Vec<SumFxModel<BACKEND>> = self
                 .beings_and_models
                 .iter_mut()
@@ -845,19 +836,40 @@ impl<const D: usize> World<D> {
             let mut new_models: Vec<SumFxModel<BACKEND>> = vec![];
 
             let mut rng = thread_rng();
-            for _ in 0..(B_START_COUNT - surviving_models.len()) {
-                let new_model = surviving_models
-                    .choose(&mut rng)
-                    .unwrap()
-                    .clone()
-                    .mutate(0.05, &DEVICE);
-                new_models.push(new_model);
+            if surviving_models.len() == 0 {
+                println!("extinction");
+                new_models = self.last_survivors.clone();
+            } else {
+                while new_models.len() + surviving_models.len() < B_START_COUNT {
+                    let m1 = surviving_models.choose(&mut thread_rng()).unwrap();
+                    let m2 = surviving_models.choose(&mut thread_rng()).unwrap();
+
+                    let new_model = m1
+                        .clone()
+                        .crossover(m2.clone(), 0.05, &DEVICE)
+                        .mutate(0.05, &DEVICE);
+                    new_models.push(new_model);
+                }
+                self.last_survivors = surviving_models.clone();
             }
 
             self.beings_and_models.clear();
             self.foods.clear();
             self.obstructs.clear();
             self.speechlets.clear();
+
+            unsafe {
+                for _ in 0..MAX_FOOD {
+                    self.add_food(
+                        Vec2::new(
+                            rng.gen_range(1.0..W_FLOAT - 1.),
+                            rng.gen_range(1.0..W_FLOAT - 1.),
+                        ),
+                        F_VAL,
+                        false,
+                    );
+                }
+            }
 
             self.being_cells = (0..(N_CELLS + 1).pow(2)).map(|_| Vec::new()).collect();
             self.obstruct_cells = (0..(N_CELLS + 1).pow(2)).map(|_| Vec::new()).collect();
@@ -945,16 +957,16 @@ impl<const D: usize> MainState<D> {
 
 impl<const D: usize> event::EventHandler<ggez::GameError> for MainState<D> {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
-        if self.world.age % 60 == 0 {
-            println!(
-                "generation: {}, timestep: {}, fps: {}, beings: {}, foods: {}",
-                self.world.generation,
-                self.world.age,
-                ctx.time.fps(),
-                self.world.beings_and_models.len(),
-                self.world.foods.len()
-            );
-        }
+        // if self.world.age % 60 == 0 {
+        //     println!(
+        //         "generation: {}, timestep: {}, fps: {}, beings: {}, foods: {}",
+        //         self.world.generation,
+        //         self.world.age,
+        //         ctx.time.fps(),
+        //         self.world.beings_and_models.len(),
+        //         self.world.foods.len()
+        //     );
+        // }
 
         self.world.step(1);
         Ok(())

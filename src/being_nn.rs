@@ -10,6 +10,11 @@ use burn::nn::Relu;
 use burn::tensor::backend::Backend;
 use burn::tensor::{Tensor, T};
 
+use rand::seq::SliceRandom;
+use rand::thread_rng;
+
+use crate::{B_OUTPUT_LEN, GENOME_LEN, SPEECHLET_LEN};
+
 pub fn tensorize_2dvec<B: Backend>(
     vec: &Vec<Vec<f32>>,
     shape: [usize; 2],
@@ -196,6 +201,38 @@ impl<B: Backend> SumFxModel<B> {
         }
     }
 
+    pub fn standard_model(device: &Device<B>) -> Self {
+        let being_config = (
+            vec![3 + GENOME_LEN, 8],
+            vec![Activation::Tanh(Tanh {}), Activation::Tanh(Tanh {})],
+        );
+        let fo_config = (
+            vec![5, 8],
+            vec![Activation::Tanh(Tanh {}), Activation::Tanh(Tanh {})],
+        );
+        let speechlet_config = (
+            vec![SPEECHLET_LEN, 8],
+            vec![Activation::Tanh(Tanh {}), Activation::Tanh(Tanh {})],
+        );
+        let self_config = (
+            vec![5, 8],
+            vec![Activation::Tanh(Tanh {}), Activation::Tanh(Tanh {})],
+        );
+        let final_config = (
+            vec![32, B_OUTPUT_LEN],
+            vec![Activation::Tanh(Tanh {}), Activation::Tanh(Tanh {})],
+        );
+        return SumFxModel::new(
+            being_config,
+            fo_config,
+            speechlet_config,
+            self_config,
+            final_config,
+            true,
+            device,
+        );
+    }
+
     pub fn forward(
         &self,
         being_tensor: Tensor<B, 2>,
@@ -223,7 +260,80 @@ impl<B: Backend> SumFxModel<B> {
         final_output
     }
 
-    pub fn mutate(self, recomb_weight: f32, device: &Device<B>) -> SumFxModel<B> {
+    pub fn crossover(
+        self,
+        other: SumFxModel<B>,
+        crossover_weight: f32,
+        device: &Device<B>,
+    ) -> SumFxModel<B> {
+        let mut new_models: Vec<FF<B>> = vec![];
+
+        for (self_model, other_model) in zip(
+            [
+                self.being_model,
+                self.fo_model,
+                self.speechlet_model,
+                self.self_model,
+                self.final_model,
+            ],
+            [
+                other.being_model,
+                other.fo_model,
+                other.speechlet_model,
+                other.self_model,
+                other.final_model,
+            ],
+        ) {
+            let mut newlins: Vec<Linear<B>> = vec![];
+
+            for (self_lin, other_lin) in zip(self_model.lins, other_model.lins) {
+                let [inp_size, outp_size] = self_lin.weight.shape().dims;
+
+                let weight = Param::from_tensor(
+                    self_lin.weight.val().mul_scalar(1. - crossover_weight)
+                        + other_lin.weight.val().mul_scalar(crossover_weight),
+                );
+
+                let bias = {
+                    if let None = self_lin.bias {
+                        None
+                    } else {
+                        Some(Param::from_tensor(
+                            self_lin
+                                .bias
+                                .unwrap()
+                                .val()
+                                .mul_scalar(1. - crossover_weight)
+                                + other_lin.bias.unwrap().val().mul_scalar(crossover_weight),
+                        ))
+                    }
+                };
+
+                let newlin = Linear {
+                    weight: weight,
+                    bias: bias,
+                };
+                newlins.push(newlin);
+            }
+
+            let new_model = FF {
+                lins: newlins,
+                acts: self_model.acts.clone(),
+            };
+            new_models.push(new_model);
+        }
+
+        return SumFxModel {
+            being_model: new_models[0].to_owned(),
+            fo_model: new_models[1].to_owned(),
+            speechlet_model: new_models[2].to_owned(),
+            self_model: new_models[3].to_owned(),
+            final_model: new_models[4].to_owned(),
+
+            concat_before_final: self.concat_before_final,
+        };
+    }
+    pub fn mutate(self, mutation_rate: f32, device: &Device<B>) -> SumFxModel<B> {
         let mut new_models: Vec<FF<B>> = vec![];
 
         for model in [
@@ -240,8 +350,7 @@ impl<B: Backend> SumFxModel<B> {
                 let mutation_lin: Linear<B> = LinearConfig::new(inp_size, outp_size).init(device);
 
                 let weight = Param::from_tensor(
-                    mutation_lin.weight.val().mul_scalar(recomb_weight)
-                        + lin.weight.val().mul_scalar(1. - recomb_weight),
+                    mutation_lin.weight.val().mul_scalar(mutation_rate) + lin.weight.val(),
                 );
 
                 let bias = {
@@ -249,8 +358,8 @@ impl<B: Backend> SumFxModel<B> {
                         None
                     } else {
                         Some(Param::from_tensor(
-                            mutation_lin.bias.unwrap().val().mul_scalar(recomb_weight)
-                                + lin.bias.unwrap().val().mul_scalar(1. - recomb_weight),
+                            mutation_lin.bias.unwrap().val().mul_scalar(mutation_rate)
+                                + lin.bias.unwrap().val(),
                         ))
                     }
                 };
