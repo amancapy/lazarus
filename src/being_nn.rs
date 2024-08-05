@@ -207,7 +207,7 @@ impl<B: Backend> SumFxModel<B> {
             vec![Activation::Tanh(Tanh {}), Activation::Tanh(Tanh {})],
         );
         let fo_config = (
-            vec![5, 8],
+            vec![4, 8],
             vec![Activation::Tanh(Tanh {}), Activation::Tanh(Tanh {})],
         );
         let speechlet_config = (

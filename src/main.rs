@@ -34,15 +34,15 @@ pub mod consts {
     pub const W_FLOAT:                                  f32 = W_SIZE as f32;
     pub const W_USIZE:                                  u32 = W_SIZE as u32;
 
-    pub const B_START_COUNT:                          usize = 50;
-    pub const REWORLDING_THRESHOLD:                   usize = 10;
+    pub const B_START_COUNT:                          usize = 100;
+    pub const REWORLDING_THRESHOLD:                   usize = 40;
 
     pub const B_FOV:                                  isize = 10;
     pub const B_FOV_PX:                                 f32 = (B_FOV as usize * CELL_SIZE) as f32;
     pub const B_SPEED:                                  f32 = 0.5;
     pub const B_RADIUS:                                 f32 = 3.5;
-    pub const O_RADIUS:                                 f32 = 2.75;
-    pub const F_RADIUS:                                 f32 = 2.5;
+    pub const O_RADIUS:                                 f32 = 3.5;
+    pub const F_RADIUS:                                 f32 = 3.5;
     pub const S_RADIUS:                                 f32 = 1.5;
 
     pub const GENOME_LEN:                             usize = 10;                  // future prospect
@@ -56,15 +56,14 @@ pub mod consts {
 
     pub const B_START_ENERGY:                           f32 = 10.;
     pub const O_START_HEALTH:                           f32 = 25.;
-    pub const F_START_AGE:                              f32 = 100.;
     pub const S_START_AGE:                              f32 = 5.;
     pub const F_VAL:                                    f32 = 2.;
     
     pub const B_TIRE_RATE:                              f32 = 0.01;
-    pub const B_MOVE_TIRE_RATE:                         f32 = 0.005;
-    pub const B_ROT_TIRE_RATE:                          f32 = 0.005;
+    pub const B_MOVE_TIRE_RATE:                         f32 = 0.01;
+    pub const B_ROT_TIRE_RATE:                          f32 = 0.01;
     pub const O_AGE_RATE:                               f32 = 0.001;
-    pub const F_AGE_RATE:                               f32 = 0.01;
+    pub const F_ROT_RATE:                               f32 = F_VAL / 1000.;
     pub const S_SOFTEN_RATE:                            f32 = 0.1;
 
     pub const B_HEADON_DAMAGE:                          f32 = 0.25;
@@ -74,8 +73,8 @@ pub mod consts {
     pub const SPAWN_S_RATIO:                            f32 = 0.05;                // fraction of start_energy spent to speak
     pub const OOB_PENALTY:                              f32 = 0.25;
 
-    pub const LOW_ENERGY_SPEED_DAMP_RATE:               f32 = 0.2;                 // beings slow down when their energy runs low
-    pub const OFF_DIR_MOVEMENT_SPEED_DAMP_RATE:         f32 = 0.5;                 // beings slow down when not moving face-forward
+    pub const LOW_ENERGY_SPEED_DAMP_RATE:               f32 = 0.001;                 // beings slow down when their energy runs low
+    pub const OFF_DIR_MOVEMENT_SPEED_DAMP_RATE:         f32 = 0.001;                 // beings slow down when not moving face-forward
 
     pub const N_FOOD_SPAWN_PER_STEP:                  usize = 1;
     
@@ -162,7 +161,7 @@ pub fn b_collides_b(b1: &Being, b2: &Being) -> (f32, f32, Vec2, [f32; 3 + GENOME
     (r1 + r2 - centre_dist, centre_dist, c1c2, full_vec)
 }
 
-pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2, [f32; 5]) {
+pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2, [f32; 4]) {
     let c1c2 = o.pos - b.pos;
     let centre_dist = c1c2.length();
     let (r1, r2) = (b.radius, O_RADIUS);
@@ -176,22 +175,20 @@ pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2, [f32; 5]) {
             centre_dist / B_FOV_PX,
             b.pos.angle_between(o.pos) / PI,
             o.age / O_START_HEALTH,
-            0.,
         ],
     )
 }
 
-pub fn b_collides_f(b: &Being, f: &Food) -> (f32, [f32; 5]) {
+pub fn b_collides_f(b: &Being, f: &Food) -> (f32, [f32; 4]) {
     let centre_dist = b.pos.distance(f.pos);
-    let (r1, r2) = (b.radius, 1.);
+    let (r1, r2) = (b.radius, F_RADIUS);
     (
         r1 + r2 - centre_dist,
         [
             1.,
             centre_dist / B_FOV_PX,
             b.pos.angle_between(f.pos) / PI,
-            f.age / F_START_AGE,
-            F_VAL,
+            f.val / F_VAL,
         ],
     )
 }
@@ -256,7 +253,6 @@ pub struct Obstruct {
 
 pub struct Food {
     pos: Vec2,
-    age: f32,
     val: f32,
     eaten: bool,
 
@@ -430,7 +426,6 @@ impl<const D: usize> World<D> {
 
         let food = Food {
             pos: pos,
-            age: F_START_AGE,
             val: val,
             eaten: false,
             is_flesh: is_flesh,
@@ -470,13 +465,8 @@ impl<const D: usize> World<D> {
                 .iter_mut()
                 .for_each(|(_, (being, _))| {
                     let being_rotation = dir_from_theta(being.rotation);
-                    let move_vec = being.output[0]
-                        * being_rotation
-                        * (being.energy / (B_START_ENERGY * LOW_ENERGY_SPEED_DAMP_RATE))
-                        * B_SPEED;
-                    let newxy = being.pos + move_vec;
-
-                    // println!("{} {}", being.output[0], move_vec.length());
+                    let move_vec = being.output[0] * being_rotation;
+                    let newxy = being.pos + (move_vec * (1. - LOW_ENERGY_SPEED_DAMP_RATE) * (being.energy / B_START_ENERGY) * B_SPEED);
 
                     if !oob(newxy, being.radius) {
                         let pos_update = move_vec / s;
@@ -554,6 +544,23 @@ impl<const D: usize> World<D> {
                                 }
                             }
 
+                            for f_id in &self.food_cells[nij] {
+                                // for a food similarly
+                                let (b, __) = self.beings_and_models.get_mut(*id1).unwrap();
+                                let f = self.foods.get_mut(*f_id);
+
+                                let f_ref = f.as_ref().unwrap();
+
+                                let (overlap, rel_vec) = b_collides_f(&b, f_ref);
+                                b.food_obstruct_inputs.push(Vec::from(rel_vec));
+
+                                if overlap > 0. && !f_ref.eaten && b.energy <= B_START_ENERGY {
+                                    b.energy_update += f_ref.val;
+                                    self.food_deaths.push((*f_id, f_ref.pos));
+                                    f.unwrap().eaten = true;
+                                }
+                            }
+
                             for ob_id in &self.obstruct_cells[nij] {
                                 // for an obstruct similarly
                                 let (b, _) = self.beings_and_models.get_mut(*id1).unwrap();
@@ -574,23 +581,6 @@ impl<const D: usize> World<D> {
                                         b.energy_update -=
                                             HEADON_B_HITS_O_DAMAGE * axis_alignment / s;
                                     }
-                                }
-                            }
-
-                            for f_id in &self.food_cells[nij] {
-                                // for a food similarly
-                                let (b, __) = self.beings_and_models.get_mut(*id1).unwrap();
-                                let f = self.foods.get_mut(*f_id);
-
-                                let f_ref = f.as_ref().unwrap();
-
-                                let (overlap, rel_vec) = b_collides_f(&b, f_ref);
-                                b.food_obstruct_inputs.push(Vec::from(rel_vec));
-
-                                if overlap > 0. && !f_ref.eaten && b.energy <= B_START_ENERGY {
-                                    b.energy_update += f_ref.val;
-                                    self.food_deaths.push((*f_id, f_ref.pos));
-                                    f.unwrap().eaten = true;
                                 }
                             }
 
@@ -693,8 +683,8 @@ impl<const D: usize> World<D> {
     // food grows stale and/or disappears
     pub fn age_foods(&mut self) {
         for (k, f) in &mut self.foods {
-            f.age -= F_AGE_RATE;
-            if f.age < 0.05 {
+            f.val -= F_ROT_RATE;
+            if f.val < 0. {
                 self.food_deaths.push((k, f.pos));
             }
         }
@@ -753,7 +743,7 @@ impl<const D: usize> World<D> {
             .iter_mut()
             .for_each(|(_, (b, model))| {
                 b.being_inputs.push(vec![-1.; 3 + GENOME_LEN]);
-                b.food_obstruct_inputs.push(vec![-1.; 5]);
+                b.food_obstruct_inputs.push(vec![-1.; 4]);
                 b.speechlet_inputs.push(vec![-1.; SPEECHLET_LEN]);
 
                 let being_tensor = tensorize_2dvec(
@@ -763,7 +753,7 @@ impl<const D: usize> World<D> {
                 );
                 let fo_tensor = tensorize_2dvec(
                     &b.food_obstruct_inputs,
-                    [b.food_obstruct_inputs.len(), 5],
+                    [b.food_obstruct_inputs.len(), 4],
                     &DEVICE,
                 );
                 let speechlet_tensor = tensorize_2dvec(
