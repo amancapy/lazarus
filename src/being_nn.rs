@@ -2,8 +2,10 @@ use std::borrow::{Borrow, BorrowMut};
 use std::iter::zip;
 
 use burn::nn::Linear;
+use burn::serde::de;
 use burn::{backend, config, prelude::*};
-use nn::LinearConfig;
+use ggez::input::gamepad::gilrs::ev::state;
+use nn::{LinearConfig, Lstm, LstmConfig, LstmRecord};
 
 use burn::module::{Module, Param};
 use burn::nn::Relu;
@@ -78,6 +80,38 @@ impl Forward for Activation {
     }
 }
 
+// bias is decided by lin1
+pub fn lerp_linears<B: Backend>(
+    lin1: Linear<B>,
+    lin2: Linear<B>,
+    left_weight: f32,
+    right_weight: f32,
+) -> Linear<B> {
+    assert!(
+        lin1.weight.shape() == lin1.weight.shape(),
+        "linear constructs do not match"
+    );
+
+    let weight =
+        lin1.weight.val().mul_scalar(left_weight) + lin2.weight.val().mul_scalar(right_weight);
+    let bias = {
+        if lin1.bias.is_none() {
+            None
+        } else {
+            Some(
+                lin1.bias.unwrap().val().mul_scalar(left_weight)
+                    + lin2.bias.unwrap().val().mul_scalar(right_weight),
+            )
+        }
+    };
+    let (weight, bias) = (
+        Param::from_tensor(weight),
+        Some(Param::from_tensor(bias.unwrap())),
+    );
+
+    Linear { weight, bias }
+}
+
 #[derive(Debug, Clone)]
 pub struct FF<B: Backend> {
     pub lins: Vec<Linear<B>>,
@@ -121,6 +155,55 @@ impl<B: Backend> FF<B> {
     }
 }
 
+fn lerp_lstms <B: Backend> (lstm_1: Lstm<B>, lstm_2: Lstm<B>, left_weight: f32, right_weight: f32) -> Lstm<B>{
+    let mut record_1 = lstm_1.clone().into_record();
+    let record_2 = lstm_2.clone().into_record();
+
+    for (gate_1, gate_2) in zip(
+        [
+            &mut record_1.input_gate,
+            &mut record_1.forget_gate,
+            &mut record_1.output_gate,
+            &mut record_1.cell_gate,
+        ],
+        [
+            record_2.input_gate,
+            record_2.forget_gate,
+            record_2.output_gate,
+            record_2.cell_gate,
+        ],
+    ) {
+        let (i_1, h_1) = (&gate_1.input_transform, &gate_1.hidden_transform);
+        let (i_1, h_1) = (
+            Linear {
+                weight: i_1.weight.clone(),
+                bias: i_1.bias.clone(),
+            },
+            Linear {
+                weight: h_1.weight.clone(),
+                bias: h_1.bias.clone(),
+            },
+        );
+
+        let (i_2, h_2) = (gate_2.input_transform, gate_2.hidden_transform);
+        let (i_2, h_2) = (
+            Linear {
+                weight: i_2.weight.clone(),
+                bias: i_2.bias.clone(),
+            },
+            Linear {
+                weight: h_2.weight.clone(),
+                bias: h_2.bias.clone(),
+            },
+        );
+
+        gate_1.input_transform = lerp_linears(i_1, i_2, left_weight, right_weight).into_record();
+        gate_1.hidden_transform = lerp_linears(h_1, h_2, left_weight, right_weight).into_record();
+    }
+
+    lstm_1.load_record(record_1)
+}
+
 #[derive(Clone)]
 pub struct SumFxModel<B: Backend> {
     pub being_model: FF<B>,
@@ -128,38 +211,15 @@ pub struct SumFxModel<B: Backend> {
     pub speechlet_model: FF<B>,
     pub self_model: FF<B>,
 
+    pub lstm: Lstm<B>,
     pub final_model: FF<B>,
+
     pub concat_before_final: bool,
+    pub intermediate_dim: usize,
+    pub lstm_inp_size: usize,
+
+    state: (Tensor<B, 2>, Tensor<B, 2>),
 }
-
-// I'm letting this live on as a testament to tunnel-vision
-// trait CustomInit {
-//     fn custom_init<B: Backend>(
-//         &self,
-//         weight: Tensor<B, 2>,
-//         bias_vec: Option<Tensor<B, 1>>,
-//         device: &B::Device,
-//     ) -> Linear<B>;
-// }
-
-// impl CustomInit for LinearConfig {
-//     fn custom_init<B: Backend>(
-//         &self,
-//         weight: Tensor<B, 2>,
-//         bias: Option<Tensor<B, 1>>,
-//         device: &B::Device,
-//     ) -> Linear<B> {
-
-//         let weight = Param::from_data(weight.to_data(), device);
-//         let bias = if self.bias {
-//             Some(Param::from_data(bias.unwrap().to_data(), device))
-//         } else {
-//             None
-//         };
-
-//         Linear { weight, bias }
-//     }
-// }
 
 impl<B: Backend> SumFxModel<B> {
     pub fn new(
@@ -170,8 +230,22 @@ impl<B: Backend> SumFxModel<B> {
         final_config: (Vec<usize>, Vec<Activation>),
 
         concat_before_final: bool,
+
         device: &Device<B>,
     ) -> Self {
+        let lstm_inp_size = {
+            if !concat_before_final {
+                being_config.0.last().unwrap().clone()
+            } else {
+                being_config.0.last().unwrap()
+                    + fo_config.0.last().unwrap()
+                    + speechlet_config.0.last().unwrap()
+                    + self_config.0.last().unwrap()
+            }
+        };
+
+        let intermediate_dim: usize;
+
         if !concat_before_final {
             assert!(
                 being_config.0.last() == fo_config.0.last()
@@ -183,11 +257,16 @@ impl<B: Backend> SumFxModel<B> {
                 final_config.0.first() == being_config.0.last(),
                 "sensory model output and final model input must be the same size, since you chose mean mode"
             );
+            intermediate_dim = being_config.0.last().unwrap()
+                + fo_config.0.last().unwrap()
+                + speechlet_config.0.last().unwrap()
+                + self_config.0.last().unwrap();
         } else {
             assert!(
                 &(being_config.0.last().unwrap() + fo_config.0.last().unwrap() + speechlet_config.0.last().unwrap() + self_config.0.last().unwrap()) == final_config.0.first().unwrap(),
                 "sensory model output sizes must add up to final model input size, since you chose concat mode"
             );
+            intermediate_dim = being_config.0.last().unwrap().clone();
         }
 
         SumFxModel {
@@ -195,9 +274,16 @@ impl<B: Backend> SumFxModel<B> {
             fo_model: create_ff::<B>(fo_config.0, fo_config.1, device),
             speechlet_model: create_ff::<B>(speechlet_config.0, speechlet_config.1, device),
             self_model: create_ff::<B>(self_config.0, self_config.1, device),
-
+            lstm: LstmConfig::new(lstm_inp_size, lstm_inp_size, true).init(device),
             final_model: create_ff(final_config.0, final_config.1, device),
+
             concat_before_final: concat_before_final,
+            intermediate_dim: intermediate_dim,
+            lstm_inp_size: lstm_inp_size,
+            state: (
+                Tensor::<B, 2>::zeros([1, intermediate_dim], device),
+                Tensor::<B, 2>::zeros([1, intermediate_dim], device),
+            ),
         }
     }
 
@@ -234,7 +320,7 @@ impl<B: Backend> SumFxModel<B> {
     }
 
     pub fn forward(
-        &self,
+        &mut self,
         being_tensor: Tensor<B, 2>,
         fo_tensor: Tensor<B, 2>,
         speechlet_tensor: Tensor<B, 2>,
@@ -287,32 +373,9 @@ impl<B: Backend> SumFxModel<B> {
             let mut newlins: Vec<Linear<B>> = vec![];
 
             for (self_lin, other_lin) in zip(self_model.lins, other_model.lins) {
-                let [inp_size, outp_size] = self_lin.weight.shape().dims;
-
-                let weight = Param::from_tensor(
-                    self_lin.weight.val().mul_scalar(1. - crossover_weight)
-                        + other_lin.weight.val().mul_scalar(crossover_weight),
-                );
-
-                let bias = {
-                    if let None = self_lin.bias {
-                        None
-                    } else {
-                        Some(Param::from_tensor(
-                            self_lin
-                                .bias
-                                .unwrap()
-                                .val()
-                                .mul_scalar(1. - crossover_weight)
-                                + other_lin.bias.unwrap().val().mul_scalar(crossover_weight),
-                        ))
-                    }
-                };
-
-                let newlin = Linear {
-                    weight: weight,
-                    bias: bias,
-                };
+                let newlin =
+                    lerp_linears(self_lin, other_lin, crossover_weight, 1. - crossover_weight)
+                        .no_grad();
                 newlins.push(newlin);
             }
 
@@ -328,9 +391,16 @@ impl<B: Backend> SumFxModel<B> {
             fo_model: new_models[1].to_owned(),
             speechlet_model: new_models[2].to_owned(),
             self_model: new_models[3].to_owned(),
+            lstm: lerp_lstms(self.lstm, other.lstm, crossover_weight, 1. - crossover_weight),
             final_model: new_models[4].to_owned(),
 
             concat_before_final: self.concat_before_final,
+            intermediate_dim: self.intermediate_dim,
+            lstm_inp_size: self.lstm_inp_size,
+            state: (
+                Tensor::<B, 2>::zeros([1, self.intermediate_dim as usize], device),
+                Tensor::<B, 2>::zeros([1, self.intermediate_dim as usize], device),
+            ),
         };
     }
     pub fn mutate(self, mutation_rate: f32, device: &Device<B>) -> SumFxModel<B> {
@@ -347,27 +417,8 @@ impl<B: Backend> SumFxModel<B> {
 
             for lin in model.lins {
                 let [inp_size, outp_size] = lin.weight.shape().dims;
-                let mutation_lin: Linear<B> = LinearConfig::new(inp_size, outp_size).init(device);
-
-                let weight = Param::from_tensor(
-                    mutation_lin.weight.val().mul_scalar(mutation_rate) + lin.weight.val(),
-                );
-
-                let bias = {
-                    if let None = lin.bias {
-                        None
-                    } else {
-                        Some(Param::from_tensor(
-                            mutation_lin.bias.unwrap().val().mul_scalar(mutation_rate)
-                                + lin.bias.unwrap().val(),
-                        ))
-                    }
-                };
-
-                let newlin = Linear {
-                    weight: weight,
-                    bias: bias,
-                };
+                let mutation_lin = LinearConfig::new(inp_size, outp_size).init(device);
+                let newlin = lerp_linears(lin, mutation_lin, 1., mutation_rate);
                 newlins.push(newlin);
             }
 
@@ -378,14 +429,23 @@ impl<B: Backend> SumFxModel<B> {
             new_models.push(new_model);
         }
 
+        let mutation_lstm = LstmConfig::new(self.lstm_inp_size, self.lstm_inp_size, true).init(device);
+
         return SumFxModel {
             being_model: new_models[0].to_owned(),
             fo_model: new_models[1].to_owned(),
             speechlet_model: new_models[2].to_owned(),
             self_model: new_models[3].to_owned(),
+            lstm: lerp_lstms(self.lstm, mutation_lstm, 1., mutation_rate),
             final_model: new_models[4].to_owned(),
 
             concat_before_final: self.concat_before_final,
+            intermediate_dim: self.intermediate_dim,
+            lstm_inp_size: self.lstm_inp_size,
+            state: (
+                Tensor::<B, 2>::zeros([1, self.intermediate_dim as usize], device),
+                Tensor::<B, 2>::zeros([1, self.intermediate_dim as usize], device),
+            ),
         };
     }
 }

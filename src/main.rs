@@ -17,6 +17,7 @@ use std::{
     process::{exit, id},
     thread::sleep,
     time::{Duration, SystemTime},
+    vec,
 };
 
 use burn::prelude::*;
@@ -27,7 +28,9 @@ mod being_nn;
 pub mod consts {
     use burn::backend;
 
-    pub const W_SIZE:                                 usize = 625;
+    pub const VIS_FREQUENCY:                          usize = 5;
+
+    pub const W_SIZE:                                 usize = 375;
     pub const N_CELLS:                                usize = 125;
     pub const CELL_SIZE:                              usize = W_SIZE / N_CELLS;
     pub const CELL_SIZE_FLOAT:                          f32 = CELL_SIZE as f32;
@@ -40,9 +43,9 @@ pub mod consts {
     pub const B_FOV:                                  isize = 10;
     pub const B_FOV_PX:                                 f32 = (B_FOV as usize * CELL_SIZE) as f32;
     pub const B_SPEED:                                  f32 = 0.5;
-    pub const B_RADIUS:                                 f32 = 3.5;
-    pub const O_RADIUS:                                 f32 = 3.5;
-    pub const F_RADIUS:                                 f32 = 3.5;
+    pub const B_RADIUS:                                 f32 = 2.75;
+    pub const O_RADIUS:                                 f32 = 2.;
+    pub const F_RADIUS:                                 f32 = 2.;
     pub const S_RADIUS:                                 f32 = 1.5;
 
     pub const GENOME_LEN:                             usize = 10;                  // future prospect
@@ -59,9 +62,9 @@ pub mod consts {
     pub const S_START_AGE:                              f32 = 5.;
     pub const F_VAL:                                    f32 = 2.;
     
-    pub const B_TIRE_RATE:                              f32 = 0.01;
-    pub const B_MOVE_TIRE_RATE:                         f32 = 0.01;
-    pub const B_ROT_TIRE_RATE:                          f32 = 0.01;
+    pub const B_TIRE_RATE:                              f32 = 0.005;
+    pub const B_MOVE_TIRE_RATE:                         f32 = 0.000;
+    pub const B_ROT_TIRE_RATE:                          f32 = 0.000;
     pub const O_AGE_RATE:                               f32 = 0.001;
     pub const F_ROT_RATE:                               f32 = F_VAL / 1000.;
     pub const S_SOFTEN_RATE:                            f32 = 0.1;
@@ -70,7 +73,7 @@ pub mod consts {
     pub const B_REAR_DAMAGE:                            f32 = 1.;
     pub const HEADON_B_HITS_O_DAMAGE:                   f32 = 0.1;
     pub const SPAWN_O_RATIO:                            f32 = 0.1;                 // fraction of start_energy spent to spawn obstruct
-    pub const SPAWN_S_RATIO:                            f32 = 0.05;                // fraction of start_energy spent to speak
+    pub const SPAWN_S_RATIO:                            f32 = 0.01;                // fraction of start_energy spent to speak
     pub const OOB_PENALTY:                              f32 = 0.25;
 
     pub const LOW_ENERGY_SPEED_DAMP_RATE:               f32 = 0.001;                 // beings slow down when their energy runs low
@@ -78,8 +81,8 @@ pub mod consts {
 
     pub const N_FOOD_SPAWN_PER_STEP:                  usize = 1;
     
-    pub static mut MAX_FOOD:                          usize = 750;
-    pub const MIN_FOOD:                               usize = 25;
+    pub static mut MAX_FOOD:                          usize = 375;
+    pub const MIN_FOOD:                               usize = 75;
     pub const MAX_FOOD_REDUCTION:                     usize = 5;
 
     pub const SPEECHLET_LEN:                          usize = 8;                   // length of the sound vector a being can emit
@@ -466,7 +469,11 @@ impl<const D: usize> World<D> {
                 .for_each(|(_, (being, _))| {
                     let being_rotation = dir_from_theta(being.rotation);
                     let move_vec = being.output[0] * being_rotation;
-                    let newxy = being.pos + (move_vec * (1. - LOW_ENERGY_SPEED_DAMP_RATE) * (being.energy / B_START_ENERGY) * B_SPEED);
+                    let newxy = being.pos
+                        + (move_vec
+                            * (1. - LOW_ENERGY_SPEED_DAMP_RATE)
+                            * (being.energy / B_START_ENERGY)
+                            * B_SPEED);
 
                     if !oob(newxy, being.radius) {
                         let pos_update = move_vec / s;
@@ -554,7 +561,7 @@ impl<const D: usize> World<D> {
                                 let (overlap, rel_vec) = b_collides_f(&b, f_ref);
                                 b.food_obstruct_inputs.push(Vec::from(rel_vec));
 
-                                if overlap > 0. && !f_ref.eaten && b.energy <= B_START_ENERGY {
+                                if overlap > 0. && !f_ref.eaten {
                                     b.energy_update += f_ref.val;
                                     self.food_deaths.push((*f_id, f_ref.pos));
                                     f.unwrap().eaten = true;
@@ -684,7 +691,7 @@ impl<const D: usize> World<D> {
     pub fn age_foods(&mut self) {
         for (k, f) in &mut self.foods {
             f.val -= F_ROT_RATE;
-            if f.val < 0. {
+            if f.val <= 0. {
                 self.food_deaths.push((k, f.pos));
             }
         }
@@ -848,6 +855,16 @@ impl<const D: usize> World<D> {
             self.obstructs.clear();
             self.speechlets.clear();
 
+            self.being_deaths.clear();
+            self.food_deaths.clear();
+            self.obstruct_deaths.clear();
+            self.speechlet_deaths.clear();
+
+            self.being_cells = (0..(N_CELLS + 1).pow(2)).map(|_| Vec::new()).collect();
+            self.obstruct_cells = (0..(N_CELLS + 1).pow(2)).map(|_| Vec::new()).collect();
+            self.food_cells = (0..(N_CELLS + 1).pow(2)).map(|_| Vec::new()).collect();
+            self.speechlet_cells = (0..(N_CELLS + 1).pow(2)).map(|_| Vec::new()).collect();
+
             unsafe {
                 for _ in 0..MAX_FOOD {
                     self.add_food(
@@ -861,19 +878,9 @@ impl<const D: usize> World<D> {
                 }
             }
 
-            self.being_cells = (0..(N_CELLS + 1).pow(2)).map(|_| Vec::new()).collect();
-            self.obstruct_cells = (0..(N_CELLS + 1).pow(2)).map(|_| Vec::new()).collect();
-            self.food_cells = (0..(N_CELLS + 1).pow(2)).map(|_| Vec::new()).collect();
-            self.speechlet_cells = (0..(N_CELLS + 1).pow(2)).map(|_| Vec::new()).collect();
-
             self.being_id = 0;
             self.ob_id = 0;
             self.food_id = 0;
-
-            self.being_deaths.clear();
-            self.food_deaths.clear();
-            self.obstruct_deaths.clear();
-            self.speechlet_deaths.clear();
 
             self.age = 0;
             self.generation += 1;
@@ -964,52 +971,52 @@ impl<const D: usize> event::EventHandler<ggez::GameError> for MainState<D> {
 
     fn draw(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
         let mut canvas = Canvas::from_frame(ctx, Color::BLACK);
+        if self.world.generation % VIS_FREQUENCY == 0 {
+            self.speechlet_instances
+                .set(self.world.speechlets.iter().map(|(_, s)| {
+                    let xy = s.pos;
+                    DrawParam::new()
+                        .scale(Vec2::new(1., 1.) / 512. * s.radius)
+                        .dest(xy)
+                        .offset(Vec2::new(256., 256.))
+                        .color(Color::new(1., 1., 1., s.age / S_START_AGE))
+                }));
 
-        self.speechlet_instances
-            .set(self.world.speechlets.iter().map(|(_, s)| {
-                let xy = s.pos;
-                DrawParam::new()
-                    .scale(Vec2::new(1., 1.) / 512. * s.radius)
-                    .dest(xy)
-                    .offset(Vec2::new(256., 256.))
-                    .color(Color::new(1., 1., 1., s.age / S_START_AGE))
-            }));
+            self.food_instances
+                .set(self.world.foods.iter().map(|(_, f)| {
+                    let xy = f.pos - Vec2::new(F_RADIUS, F_RADIUS);
+                    DrawParam::new()
+                        .dest(xy.clone())
+                        .scale(Vec2::new(1., 1.) / 2048. * 2. * F_RADIUS)
+                        .color(Color::new(1., 1., 1., f.val / F_VAL))
+                }));
 
-        self.food_instances
-            .set(self.world.foods.iter().map(|(_, f)| {
-                let xy = f.pos - Vec2::new(F_RADIUS, F_RADIUS);
-                DrawParam::new()
-                    .dest(xy.clone())
-                    .scale(Vec2::new(1., 1.) / 2048. * 2. * F_RADIUS)
-                    .color(Color::new(1., 1., 1., f.val / F_VAL))
-            }));
+            self.obstruct_instances
+                .set(self.world.obstructs.iter().map(|(_, o)| {
+                    let xy = o.pos;
+                    DrawParam::new()
+                        .dest(xy.clone())
+                        .scale(Vec2::new(1., 1.) / 800. * 2. * O_RADIUS)
+                        .color(Color::new(1., 1., 1., o.age / O_START_HEALTH))
+                }));
 
-        self.obstruct_instances
-            .set(self.world.obstructs.iter().map(|(_, o)| {
-                let xy = o.pos;
-                DrawParam::new()
-                    .dest(xy.clone())
-                    .scale(Vec2::new(1., 1.) / 800. * 2. * O_RADIUS)
-                    .color(Color::new(1., 1., 1., o.age / O_START_HEALTH))
-            }));
+            self.being_instances
+                .set(self.world.beings_and_models.iter().map(|(_, (b, _))| {
+                    let xy = b.pos;
+                    DrawParam::new()
+                        .scale(Vec2::new(1., 1.) / 400. * 2. * B_RADIUS)
+                        .dest(xy)
+                        .offset(Vec2::new(200., 200.))
+                        .rotation(b.rotation)
+                        .color(Color::new(1., 1., 1., b.energy / B_START_ENERGY))
+                }));
 
-        self.being_instances
-            .set(self.world.beings_and_models.iter().map(|(_, (b, _))| {
-                let xy = b.pos;
-                DrawParam::new()
-                    .scale(Vec2::new(1., 1.) / 400. * 2. * B_RADIUS)
-                    .dest(xy)
-                    .offset(Vec2::new(200., 200.))
-                    .rotation(b.rotation)
-                    .color(Color::new(1., 1., 1., b.energy / B_START_ENERGY))
-            }));
-
-        let param = DrawParam::new();
-        canvas.draw(&self.speechlet_instances, param);
-        canvas.draw(&self.food_instances, param);
-        canvas.draw(&self.obstruct_instances, param);
-        canvas.draw(&self.being_instances, param);
-
+            let param = DrawParam::new();
+            canvas.draw(&self.speechlet_instances, param);
+            canvas.draw(&self.food_instances, param);
+            canvas.draw(&self.obstruct_instances, param);
+            canvas.draw(&self.being_instances, param);
+        }
         let a = canvas.finish(ctx);
 
         a
