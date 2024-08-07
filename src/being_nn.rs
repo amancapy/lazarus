@@ -155,7 +155,12 @@ impl<B: Backend> FF<B> {
     }
 }
 
-fn lerp_lstms <B: Backend> (lstm_1: Lstm<B>, lstm_2: Lstm<B>, left_weight: f32, right_weight: f32) -> Lstm<B>{
+fn lerp_lstms<B: Backend>(
+    lstm_1: Lstm<B>,
+    lstm_2: Lstm<B>,
+    left_weight: f32,
+    right_weight: f32,
+) -> Lstm<B> {
     let mut record_1 = lstm_1.clone().into_record();
     let record_2 = lstm_2.clone().into_record();
 
@@ -391,7 +396,12 @@ impl<B: Backend> SumFxModel<B> {
             fo_model: new_models[1].to_owned(),
             speechlet_model: new_models[2].to_owned(),
             self_model: new_models[3].to_owned(),
-            lstm: lerp_lstms(self.lstm, other.lstm, crossover_weight, 1. - crossover_weight),
+            lstm: lerp_lstms(
+                self.lstm,
+                other.lstm,
+                crossover_weight,
+                1. - crossover_weight,
+            ),
             final_model: new_models[4].to_owned(),
 
             concat_before_final: self.concat_before_final,
@@ -429,7 +439,8 @@ impl<B: Backend> SumFxModel<B> {
             new_models.push(new_model);
         }
 
-        let mutation_lstm = LstmConfig::new(self.lstm_inp_size, self.lstm_inp_size, true).init(device);
+        let mutation_lstm =
+            LstmConfig::new(self.lstm_inp_size, self.lstm_inp_size, true).init(device);
 
         return SumFxModel {
             being_model: new_models[0].to_owned(),

@@ -1,16 +1,14 @@
-use being_nn::{tensorize_2dvec, Activation, Sigmoid, SumFxModel, Tanh};
+use being_nn::{tensorize_2dvec, SumFxModel};
 use ggez::{
-    conf::{Backend, NumSamples, WindowMode, WindowSetup},
+    conf::{NumSamples, WindowMode, WindowSetup},
     event,
     glam::*,
     graphics::{Canvas, Color, DrawParam, Image, InstanceArray},
     Context, GameResult,
 };
-use nn::Relu;
 use rand::{seq::SliceRandom, thread_rng, Rng};
 use slotmap::{DefaultKey, SlotMap};
 use std::{
-    borrow::{Borrow, BorrowMut},
     env,
     f32::consts::PI,
     path::PathBuf,
@@ -28,7 +26,7 @@ mod being_nn;
 pub mod consts {
     use burn::backend;
 
-    pub const VIS_FREQUENCY:                          usize = 5;
+    pub const VIS_FREQUENCY:                          usize = 1;
 
     pub const W_SIZE:                                 usize = 375;
     pub const N_CELLS:                                usize = 125;
@@ -61,12 +59,13 @@ pub mod consts {
     pub const O_START_HEALTH:                           f32 = 25.;
     pub const S_START_AGE:                              f32 = 5.;
     pub const F_VAL:                                    f32 = 2.;
+    pub const F_START_AGE:                              f32 = 50.;
     
     pub const B_TIRE_RATE:                              f32 = 0.005;
     pub const B_MOVE_TIRE_RATE:                         f32 = 0.000;
     pub const B_ROT_TIRE_RATE:                          f32 = 0.000;
     pub const O_AGE_RATE:                               f32 = 0.001;
-    pub const F_ROT_RATE:                               f32 = F_VAL / 1000.;
+    pub const F_ROT_RATE:                               f32 = F_START_AGE / 1000.;
     pub const S_SOFTEN_RATE:                            f32 = 0.1;
 
     pub const B_HEADON_DAMAGE:                          f32 = 0.25;
@@ -258,6 +257,7 @@ pub struct Food {
     pos: Vec2,
     val: f32,
     eaten: bool,
+    age: f32,
 
     is_flesh: bool,
     id: usize,
@@ -431,6 +431,7 @@ impl<const D: usize> World<D> {
             pos: pos,
             val: val,
             eaten: false,
+            age: F_START_AGE,
             is_flesh: is_flesh,
 
             id: self.food_id,
@@ -690,8 +691,8 @@ impl<const D: usize> World<D> {
     // food grows stale and/or disappears
     pub fn age_foods(&mut self) {
         for (k, f) in &mut self.foods {
-            f.val -= F_ROT_RATE;
-            if f.val <= 0. {
+            f.age -= F_ROT_RATE;
+            if f.age <= 0. {
                 self.food_deaths.push((k, f.pos));
             }
         }
@@ -778,7 +779,6 @@ impl<const D: usize> World<D> {
                 b.being_inputs.clear();
                 b.food_obstruct_inputs.clear();
                 b.speechlet_inputs.clear();
-
                 let model_output = model
                     .forward(being_tensor, fo_tensor, speechlet_tensor, self_tensor)
                     .into_data()
