@@ -1,19 +1,13 @@
-use std::borrow::{Borrow, BorrowMut};
 use std::iter::zip;
 
 use burn::nn::Linear;
-use burn::serde::de;
-use burn::{backend, config, prelude::*};
-use ggez::input::gamepad::gilrs::ev::state;
-use nn::{LinearConfig, Lstm, LstmConfig, LstmRecord};
+use burn::prelude::*;
+use nn::{LinearConfig, Lstm, LstmConfig};
 
-use burn::module::{AutodiffModule, Module, Param};
+use burn::module::{Module, Param};
 use burn::nn::Relu;
 use burn::tensor::backend::Backend;
-use burn::tensor::{Tensor, T};
-
-use rand::seq::SliceRandom;
-use rand::thread_rng;
+use burn::tensor::{activation, Tensor};
 
 use crate::{B_OUTPUT_LEN, GENOME_LEN, SPEECHLET_LEN};
 
@@ -81,7 +75,7 @@ impl Forward for Activation {
 }
 
 // bias is decided by lin1
-pub fn lerp_linears<B: Backend>(
+pub fn combine_linears<B: Backend>(
     lin1: Linear<B>,
     lin2: Linear<B>,
     left_weight: f32,
@@ -155,7 +149,7 @@ impl<B: Backend> FF<B> {
     }
 }
 
-fn lerp_lstms<B: Backend>(
+fn combine_lstms<B: Backend>(
     lstm_1: Lstm<B>,
     lstm_2: Lstm<B>,
     left_weight: f32,
@@ -202,8 +196,8 @@ fn lerp_lstms<B: Backend>(
             },
         );
 
-        gate_1.input_transform = lerp_linears(i_1, i_2, left_weight, right_weight).into_record();
-        gate_1.hidden_transform = lerp_linears(h_1, h_2, left_weight, right_weight).into_record();
+        gate_1.input_transform = combine_linears(i_1, i_2, left_weight, right_weight).into_record();
+        gate_1.hidden_transform = combine_linears(h_1, h_2, left_weight, right_weight).into_record();
     }
 
     lstm_1.load_record(record_1).no_grad()
@@ -300,7 +294,7 @@ impl<B: Backend> SumFxModel<B> {
             vec![Activation::Tanh(Tanh {}), Activation::Tanh(Tanh {})],
         );
         let fo_config = (
-            vec![4, 8],
+            vec![5, 8],
             vec![Activation::Tanh(Tanh {}), Activation::Tanh(Tanh {})],
         );
         let speechlet_config = (
@@ -338,27 +332,28 @@ impl<B: Backend> SumFxModel<B> {
         let speechlet_output = self.speechlet_model.forward(speechlet_tensor).mean_dim(0);
         let self_output = self.self_model.forward(self_tensor);
 
-        let intermediate: Tensor<B, 2>;
+        let intermediate: Tensor<B, 2> = {
         if self.concat_before_final {
-            intermediate = Tensor::cat(
+            Tensor::cat(
                 vec![beings_output, fo_output, speechlet_output, self_output],
                 1,
-            );
+            )
         } else {
-            intermediate = (beings_output + fo_output + speechlet_output + self_output) / 4.;
-        };
+            (beings_output + fo_output + speechlet_output + self_output) / 4.
+        }};
 
         let (c, h) = self
             .lstm
             .forward(intermediate.clone().unsqueeze(), Some(self.state.clone()));
 
         let (c, h): (Tensor<B, 2>, Tensor<B, 2>) = (
-            c.squeeze(0),
-            h.squeeze(0),
+            c.squeeze(0).no_grad(),
+            h.squeeze(0).no_grad(),
         );
         self.state = (c.clone(), h.clone());
 
         let final_output = self.final_model.forward(h).squeeze(0);
+        let final_output = activation::tanh(final_output);
 
         final_output
     }
@@ -391,7 +386,7 @@ impl<B: Backend> SumFxModel<B> {
 
             for (self_lin, other_lin) in zip(self_model.lins, other_model.lins) {
                 let newlin =
-                    lerp_linears(self_lin, other_lin, crossover_weight, 1. - crossover_weight)
+                    combine_linears(self_lin, other_lin, crossover_weight, 1. - crossover_weight)
                         .no_grad();
                 newlins.push(newlin);
             }
@@ -408,7 +403,7 @@ impl<B: Backend> SumFxModel<B> {
             fo_model: new_models[1].to_owned(),
             speechlet_model: new_models[2].to_owned(),
             self_model: new_models[3].to_owned(),
-            lstm: lerp_lstms(
+            lstm: combine_lstms(
                 self.lstm,
                 other.lstm,
                 crossover_weight,
@@ -440,7 +435,7 @@ impl<B: Backend> SumFxModel<B> {
             for lin in model.lins {
                 let [inp_size, outp_size] = lin.weight.shape().dims;
                 let mutation_lin = LinearConfig::new(inp_size, outp_size).init(device);
-                let newlin = lerp_linears(lin, mutation_lin, 1., mutation_rate);
+                let newlin = combine_linears(lin, mutation_lin, 1., mutation_rate);
                 newlins.push(newlin);
             }
 
@@ -459,7 +454,7 @@ impl<B: Backend> SumFxModel<B> {
             fo_model: new_models[1].to_owned(),
             speechlet_model: new_models[2].to_owned(),
             self_model: new_models[3].to_owned(),
-            lstm: lerp_lstms(self.lstm, mutation_lstm, 1., mutation_rate),
+            lstm: combine_lstms(self.lstm, mutation_lstm, 1., mutation_rate),
             final_model: new_models[4].to_owned(),
 
             concat_before_final: self.concat_before_final,

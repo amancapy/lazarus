@@ -35,8 +35,8 @@ pub mod consts {
     pub const W_FLOAT:                                  f32 = W_SIZE as f32;
     pub const W_USIZE:                                  u32 = W_SIZE as u32;
 
-    pub const B_START_COUNT:                          usize = 100;
-    pub const REWORLDING_THRESHOLD:                   usize = 40;
+    pub const B_START_COUNT:                          usize = 50;
+    pub const REWORLDING_THRESHOLD:                   usize = 15;
 
     pub const B_FOV:                                  isize = 10;
     pub const B_FOV_PX:                                 f32 = (B_FOV as usize * CELL_SIZE) as f32;
@@ -71,7 +71,7 @@ pub mod consts {
     pub const B_HEADON_DAMAGE:                          f32 = 0.25;
     pub const B_REAR_DAMAGE:                            f32 = 1.;
     pub const HEADON_B_HITS_O_DAMAGE:                   f32 = 0.1;
-    pub const SPAWN_O_RATIO:                            f32 = 0.1;                 // fraction of start_energy spent to spawn obstruct
+    pub const SPAWN_O_RATIO:                            f32 = 0.01;                 // fraction of start_energy spent to spawn obstruct
     pub const SPAWN_S_RATIO:                            f32 = 0.01;                // fraction of start_energy spent to speak
     pub const OOB_PENALTY:                              f32 = 0.25;
 
@@ -80,9 +80,9 @@ pub mod consts {
 
     pub const N_FOOD_SPAWN_PER_STEP:                  usize = 1;
     
-    pub static mut MAX_FOOD:                          usize = 375;
-    pub const MIN_FOOD:                               usize = 75;
-    pub const MAX_FOOD_REDUCTION:                     usize = 5;
+    pub static mut MAX_FOOD:                          usize = 250;
+    pub const MIN_FOOD:                               usize = 25;
+    pub const MAX_FOOD_REDUCTION:                     usize = 1;
 
     pub const SPEECHLET_LEN:                          usize = 8;                   // length of the sound vector a being can emit
     pub const B_OUTPUT_LEN:                           usize = 4 + SPEECHLET_LEN;   // (f-b, rotate, spawn obstruct, spawn_speechlet, *speechlet)
@@ -163,7 +163,7 @@ pub fn b_collides_b(b1: &Being, b2: &Being) -> (f32, f32, Vec2, [f32; 3 + GENOME
     (r1 + r2 - centre_dist, centre_dist, c1c2, full_vec)
 }
 
-pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2, [f32; 4]) {
+pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2, [f32; 5]) {
     let c1c2 = o.pos - b.pos;
     let centre_dist = c1c2.length();
     let (r1, r2) = (b.radius, O_RADIUS);
@@ -177,11 +177,12 @@ pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2, [f32; 4]) {
             centre_dist / B_FOV_PX,
             b.pos.angle_between(o.pos) / PI,
             o.age / O_START_HEALTH,
+            1.
         ],
     )
 }
 
-pub fn b_collides_f(b: &Being, f: &Food) -> (f32, [f32; 4]) {
+pub fn b_collides_f(b: &Being, f: &Food) -> (f32, [f32; 5]) {
     let centre_dist = b.pos.distance(f.pos);
     let (r1, r2) = (b.radius, F_RADIUS);
     (
@@ -191,6 +192,7 @@ pub fn b_collides_f(b: &Being, f: &Food) -> (f32, [f32; 4]) {
             centre_dist / B_FOV_PX,
             b.pos.angle_between(f.pos) / PI,
             f.val / F_VAL,
+            f.age / F_START_AGE
         ],
     )
 }
@@ -431,7 +433,7 @@ impl<const D: usize> World<D> {
             pos: pos,
             val: val,
             eaten: false,
-            age: F_START_AGE,
+            age: {if !is_flesh{F_START_AGE} else{F_START_AGE / 3.}},
             is_flesh: is_flesh,
 
             id: self.food_id,
@@ -751,7 +753,7 @@ impl<const D: usize> World<D> {
             .iter_mut()
             .for_each(|(_, (b, model))| {
                 b.being_inputs.push(vec![-1.; 3 + GENOME_LEN]);
-                b.food_obstruct_inputs.push(vec![-1.; 4]);
+                b.food_obstruct_inputs.push(vec![-1.; 5]);
                 b.speechlet_inputs.push(vec![-1.; SPEECHLET_LEN]);
 
                 let being_tensor = tensorize_2dvec(
@@ -762,7 +764,7 @@ impl<const D: usize> World<D> {
                 .no_grad();
                 let fo_tensor = tensorize_2dvec(
                     &b.food_obstruct_inputs,
-                    [b.food_obstruct_inputs.len(), 4],
+                    [b.food_obstruct_inputs.len(), 5],
                     &DEVICE,
                 )
                 .no_grad();
@@ -957,17 +959,6 @@ impl<const D: usize> MainState<D> {
 
 impl<const D: usize> event::EventHandler<ggez::GameError> for MainState<D> {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
-        // if self.world.age % 60 == 0 {
-        //     println!(
-        //         "generation: {}, timestep: {}, fps: {}, beings: {}, foods: {}",
-        //         self.world.generation,
-        //         self.world.age,
-        //         ctx.time.fps(),
-        //         self.world.beings_and_models.len(),
-        //         self.world.foods.len()
-        //     );
-        // }
-
         self.world.step(1);
         Ok(())
     }
@@ -1059,7 +1050,6 @@ pub fn run() -> GameResult {
     event::run(ctx, event_loop, state)
 }
 
-// to let it rip without rendering, mainly to gauge overhead of rendering on top of step()
 pub fn gauge() {
     let mut w = World::<2>::standard_world();
     let now = SystemTime::now();
