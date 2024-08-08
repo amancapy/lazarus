@@ -7,7 +7,7 @@ use burn::{backend, config, prelude::*};
 use ggez::input::gamepad::gilrs::ev::state;
 use nn::{LinearConfig, Lstm, LstmConfig, LstmRecord};
 
-use burn::module::{Module, Param};
+use burn::module::{AutodiffModule, Module, Param};
 use burn::nn::Relu;
 use burn::tensor::backend::Backend;
 use burn::tensor::{Tensor, T};
@@ -206,7 +206,7 @@ fn lerp_lstms<B: Backend>(
         gate_1.hidden_transform = lerp_linears(h_1, h_2, left_weight, right_weight).into_record();
     }
 
-    lstm_1.load_record(record_1)
+    lstm_1.load_record(record_1).no_grad()
 }
 
 #[derive(Clone)]
@@ -262,16 +262,16 @@ impl<B: Backend> SumFxModel<B> {
                 final_config.0.first() == being_config.0.last(),
                 "sensory model output and final model input must be the same size, since you chose mean mode"
             );
-            intermediate_dim = being_config.0.last().unwrap()
-                + fo_config.0.last().unwrap()
-                + speechlet_config.0.last().unwrap()
-                + self_config.0.last().unwrap();
+            intermediate_dim = being_config.0.last().unwrap().clone();
         } else {
             assert!(
                 &(being_config.0.last().unwrap() + fo_config.0.last().unwrap() + speechlet_config.0.last().unwrap() + self_config.0.last().unwrap()) == final_config.0.first().unwrap(),
                 "sensory model output sizes must add up to final model input size, since you chose concat mode"
             );
-            intermediate_dim = being_config.0.last().unwrap().clone();
+            intermediate_dim = being_config.0.last().unwrap()
+                + fo_config.0.last().unwrap()
+                + speechlet_config.0.last().unwrap()
+                + self_config.0.last().unwrap();
         }
 
         SumFxModel {
@@ -279,15 +279,17 @@ impl<B: Backend> SumFxModel<B> {
             fo_model: create_ff::<B>(fo_config.0, fo_config.1, device),
             speechlet_model: create_ff::<B>(speechlet_config.0, speechlet_config.1, device),
             self_model: create_ff::<B>(self_config.0, self_config.1, device),
-            lstm: LstmConfig::new(lstm_inp_size, lstm_inp_size, true).init(device),
+            lstm: LstmConfig::new(lstm_inp_size, lstm_inp_size, true)
+                .init(device)
+                .no_grad(),
             final_model: create_ff(final_config.0, final_config.1, device),
 
             concat_before_final: concat_before_final,
             intermediate_dim: intermediate_dim,
             lstm_inp_size: lstm_inp_size,
             state: (
-                Tensor::<B, 2>::zeros([1, intermediate_dim], device),
-                Tensor::<B, 2>::zeros([1, intermediate_dim], device),
+                Tensor::<B, 2>::zeros([1, intermediate_dim], device).no_grad(),
+                Tensor::<B, 2>::zeros([1, intermediate_dim], device).no_grad(),
             ),
         }
     }
@@ -346,7 +348,17 @@ impl<B: Backend> SumFxModel<B> {
             intermediate = (beings_output + fo_output + speechlet_output + self_output) / 4.;
         };
 
-        let final_output = self.final_model.forward(intermediate).squeeze(0);
+        let (c, h) = self
+            .lstm
+            .forward(intermediate.clone().unsqueeze(), Some(self.state.clone()));
+
+        let (c, h): (Tensor<B, 2>, Tensor<B, 2>) = (
+            c.squeeze(0),
+            h.squeeze(0),
+        );
+        self.state = (c.clone(), h.clone());
+
+        let final_output = self.final_model.forward(h).squeeze(0);
 
         final_output
     }

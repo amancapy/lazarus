@@ -758,23 +758,27 @@ impl<const D: usize> World<D> {
                     &b.being_inputs,
                     [b.being_inputs.len(), GENOME_LEN + 3],
                     &DEVICE,
-                );
+                )
+                .no_grad();
                 let fo_tensor = tensorize_2dvec(
                     &b.food_obstruct_inputs,
                     [b.food_obstruct_inputs.len(), 4],
                     &DEVICE,
-                );
+                )
+                .no_grad();
                 let speechlet_tensor = tensorize_2dvec(
                     &b.speechlet_inputs,
                     [b.speechlet_inputs.len(), SPEECHLET_LEN],
                     &DEVICE,
-                );
+                )
+                .no_grad();
 
                 let mut self_vec = is_border_in_sight(b.pos, b.rotation).to_vec();
                 self_vec.extend([b.energy / B_START_ENERGY]);
 
-                let self_tensor =
-                    Tensor::<BACKEND, 1>::from_floats(self_vec.as_slice(), &DEVICE).reshape([1, 5]);
+                let self_tensor = Tensor::<BACKEND, 1>::from_floats(self_vec.as_slice(), &DEVICE)
+                    .reshape([1, 5])
+                    .no_grad();
 
                 b.being_inputs.clear();
                 b.food_obstruct_inputs.clear();
@@ -796,12 +800,11 @@ impl<const D: usize> World<D> {
                     obstruct_queue.push(b.pos + dir_from_theta(b.rotation) * 2.);
                 }
 
-                let mut speechlet = [0.; SPEECHLET_LEN];
-                (0..SPEECHLET_LEN).for_each(|i| {
-                    speechlet[i] = b.output[i + 3];
-                });
-
                 if b.output[3] > 0. {
+                    let mut speechlet = [0.; SPEECHLET_LEN];
+                    (0..SPEECHLET_LEN).for_each(|i| {
+                        speechlet[i] = b.output[i + 3];
+                    });
                     b.energy_update -= SPAWN_S_RATIO * B_START_ENERGY;
                     speechlet_queue.push((b.pos, speechlet));
                 }
@@ -844,7 +847,7 @@ impl<const D: usize> World<D> {
                     let new_model = m1
                         .clone()
                         .crossover(m2.clone(), 0.05, &DEVICE)
-                        .mutate(0.05, &DEVICE);
+                        .mutate(0.01, &DEVICE);
                     new_models.push(new_model);
                 }
                 self.last_survivors = surviving_models.clone();
