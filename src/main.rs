@@ -1,4 +1,7 @@
-use being_nn::{tensorize_2dvec, SumFxModel};
+mod being_nn;
+mod models;
+
+use being_nn::*;
 use ggez::{
     conf::{NumSamples, WindowMode, WindowSetup},
     event,
@@ -20,11 +23,11 @@ use std::{
 
 use burn::prelude::*;
 
-mod being_nn;
-
 #[rustfmt::skip]
 pub mod consts {
     use burn::backend;
+
+    use crate::models::{sumfx::SumFxModel, sumfxlstm::SumFxLstmModel, mha::MhaModel, mhalstm::MhaLstmModel};
 
     pub const VIS_FREQUENCY:                          usize = 1;
 
@@ -89,6 +92,7 @@ pub mod consts {
     
     pub type BACKEND                                        = backend::NdArray;
     pub const DEVICE:       backend::ndarray::NdArrayDevice = backend::ndarray::NdArrayDevice::Cpu;
+    pub type Model                                          = MhaModel<BACKEND>;
 }
 
 use consts::*;
@@ -177,7 +181,7 @@ pub fn b_collides_o(b: &Being, o: &Obstruct) -> (f32, f32, Vec2, [f32; 5]) {
             centre_dist / B_FOV_PX,
             b.pos.angle_between(o.pos) / PI,
             o.age / O_START_HEALTH,
-            1.
+            1.,
         ],
     )
 }
@@ -192,7 +196,7 @@ pub fn b_collides_f(b: &Being, f: &Food) -> (f32, [f32; 5]) {
             centre_dist / B_FOV_PX,
             b.pos.angle_between(f.pos) / PI,
             f.val / F_VAL,
-            f.age / F_START_AGE
+            f.age / F_START_AGE,
         ],
     )
 }
@@ -276,7 +280,7 @@ pub struct Speechlet {
 }
 
 pub struct World<const D: usize> {
-    beings_and_models: SlotMap<DefaultKey, (Being, SumFxModel<BACKEND>)>,
+    beings_and_models: SlotMap<DefaultKey, (Being, Model)>,
     obstructs: SlotMap<DefaultKey, Obstruct>,
     foods: SlotMap<DefaultKey, Food>,
     speechlets: SlotMap<DefaultKey, Speechlet>,
@@ -299,7 +303,7 @@ pub struct World<const D: usize> {
 
     age: usize,
     generation: usize,
-    last_survivors: Vec<SumFxModel<BACKEND>>,
+    last_survivors: Vec<Model>,
 }
 
 impl<const D: usize> World<D> {
@@ -350,7 +354,7 @@ impl<const D: usize> World<D> {
                 rng.gen_range(-PI..PI),
                 B_START_ENERGY,
                 [0.; GENOME_LEN],
-                SumFxModel::standard_model(&DEVICE),
+                Model::standard_model(&DEVICE),
             );
         }
 
@@ -378,7 +382,7 @@ impl<const D: usize> World<D> {
         health: f32,
         genome: [f32; GENOME_LEN],
 
-        model: SumFxModel<BACKEND>,
+        model: Model,
     ) {
         let (i, j) = pos_to_cell(pos);
 
@@ -433,7 +437,13 @@ impl<const D: usize> World<D> {
             pos: pos,
             val: val,
             eaten: false,
-            age: {if !is_flesh{F_START_AGE} else{F_START_AGE / 3.}},
+            age: {
+                if !is_flesh {
+                    F_START_AGE
+                } else {
+                    F_START_AGE / 3.
+                }
+            },
             is_flesh: is_flesh,
 
             id: self.food_id,
@@ -829,13 +839,13 @@ impl<const D: usize> World<D> {
             }
             println!("generation: {}, world age: {}", self.generation, self.age);
 
-            let mut surviving_models: Vec<SumFxModel<BACKEND>> = self
+            let mut surviving_models: Vec<Model> = self
                 .beings_and_models
                 .iter_mut()
                 .map(|(_, (_, m))| m.clone())
                 .collect();
 
-            let mut new_models: Vec<SumFxModel<BACKEND>> = vec![];
+            let mut new_models: Vec<Model> = vec![];
 
             let mut rng = thread_rng();
             if surviving_models.len() == 0 {
