@@ -31,15 +31,15 @@ pub mod consts {
 
     pub const VIS_FREQUENCY:                          usize = 1;
 
-    pub const W_SIZE:                                 usize = 375;
-    pub const N_CELLS:                                usize = 125;
+    pub const W_SIZE:                                 usize = 999;
+    pub const N_CELLS:                                usize = 333;
     pub const CELL_SIZE:                              usize = W_SIZE / N_CELLS;
     pub const CELL_SIZE_FLOAT:                          f32 = CELL_SIZE as f32;
     pub const W_FLOAT:                                  f32 = W_SIZE as f32;
     pub const W_USIZE:                                  u32 = W_SIZE as u32;
 
-    pub const B_START_COUNT:                          usize = 50;
-    pub const REWORLDING_THRESHOLD:                   usize = 15;
+    pub const B_START_COUNT:                          usize = 250;
+    pub const REWORLDING_THRESHOLD:                   usize = 50;
 
     pub const B_FOV:                                  isize = 10;
     pub const B_FOV_PX:                                 f32 = (B_FOV as usize * CELL_SIZE) as f32;
@@ -83,16 +83,16 @@ pub mod consts {
 
     pub const N_FOOD_SPAWN_PER_STEP:                  usize = 1;
     
-    pub static mut MAX_FOOD:                          usize = 250;
-    pub const MIN_FOOD:                               usize = 25;
-    pub const MAX_FOOD_REDUCTION:                     usize = 1;
+    pub static mut MAX_FOOD:                          usize = 1000;
+    pub const MIN_FOOD:                               usize = 250;
+    pub const MAX_FOOD_REDUCTION:                     usize = 5;
 
     pub const SPEECHLET_LEN:                          usize = 8;                   // length of the sound vector a being can emit
     pub const B_OUTPUT_LEN:                           usize = 4 + SPEECHLET_LEN;   // (f-b, rotate, spawn obstruct, spawn_speechlet, *speechlet)
     
     pub type BACKEND                                        = backend::NdArray;
     pub const DEVICE:       backend::ndarray::NdArrayDevice = backend::ndarray::NdArrayDevice::Cpu;
-    pub type Model                                          = MhaModel<BACKEND>;
+    pub type Model                                          = SumFxLstmModel<BACKEND>;
 }
 
 use consts::*;

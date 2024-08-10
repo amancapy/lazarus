@@ -50,14 +50,6 @@ impl<B: Backend> MhaModel<B> {
         let (fo_inp_size, fo_out_size, fo_act) = fo_config;
         let (speechlet_inp_size, speechlet_out_size, speechlet_act) = speechlet_config;
 
-        let lstm_inp_size = {
-            if !concat_before_final {
-                being_out_size
-            } else {
-                being_out_size + fo_out_size + speechlet_out_size + self_config.0.last().unwrap()
-            }
-        };
-
         let intermediate_dim: usize;
 
         if !concat_before_final {
@@ -270,6 +262,7 @@ impl<B: Backend> MhaModel<B> {
             inp_sizes: self.inp_sizes,
         };
     }
+    
     pub fn mutate(self, mutation_rate: f32, device: &Device<B>) -> Self {
         let mut new_models: Vec<FF<B>> = vec![];
 
