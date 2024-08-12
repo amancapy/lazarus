@@ -148,24 +148,34 @@ impl<B: Backend> FF<B> {
     }
 }
 
-pub fn combine_ffs<B: Backend>(
-    ff1: FF<B>,
+pub fn splice_ffs<B: Backend>(
+    mut ff1: FF<B>,
     ff2: FF<B>,
     left_weight: f32,
-    right_weight: f32,
 ) -> FF<B> {
-    let mut newlins: Vec<Linear<B>> = vec![];
-    for (self_lin, other_lin) in zip(ff1.lins, ff2.lins) {
-        let newlin = combine_linears(self_lin, other_lin, left_weight, right_weight).no_grad();
-        newlins.push(newlin);
+    for (ff1_lin, ff2_lin) in zip(&mut ff1.lins, ff2.lins) {
+        let weight = ff1_lin.weight.clone().val();
+        let mask: Tensor<B, 2> = weight.ones_like().mul_scalar(left_weight);
+        
+        let ff1_mask: Tensor<B, 2, Bool> = weight.random_like(burn::tensor::Distribution::Uniform(0., 1.)).greater_equal(mask);
+        let ff2_mask: Tensor<B, 2, Bool> = ff1_mask.clone().bool_not();
+
+        let weight = ff1_lin.weight.val().mask_fill(ff1_mask, 0.) + ff2_lin.weight.val().mask_fill(ff2_mask, 0.);
+        ff1_lin.weight = Param::from_tensor(weight);
+
+        if !ff1_lin.bias.is_none() {
+            let bias = ff1_lin.bias.clone().unwrap().val();
+            let mask: Tensor<B, 1> = bias.ones_like().mul_scalar(left_weight);
+
+            let ff1_mask: Tensor<B, 1, Bool> = bias.random_like(burn::tensor::Distribution::Uniform(0., 1.)).greater_equal(mask);
+            let ff2_mask: Tensor<B, 1, Bool> = ff1_mask.clone().bool_not();
+
+            let bias = ff1_lin.bias.clone().unwrap().val().mask_fill(ff1_mask, 0.) + ff2_lin.bias.unwrap().val().mask_fill(ff2_mask, 0.);
+            ff1_lin.bias = Some(Param::from_tensor(bias));
+        }
     }
 
-    FF {
-        lins: newlins,
-        acts: ff1.acts.clone(),
-
-        config: ff1.config.clone(),
-    }
+    ff1
 }
 
 pub fn combine_lstms<B: Backend>(

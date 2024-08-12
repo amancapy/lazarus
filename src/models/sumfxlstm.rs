@@ -11,7 +11,7 @@ use burn::tensor::backend::Backend;
 use burn::tensor::{activation, Tensor};
 
 use crate::being_nn::{combine_linears, combine_lstms, Activation, Tanh, FF};
-use crate::{combine_ffs, B_OUTPUT_LEN, GENOME_LEN, SPEECHLET_LEN};
+use crate::{splice_ffs, B_OUTPUT_LEN, GENOME_LEN, SPEECHLET_LEN};
 
 #[derive(Clone)]
 pub struct SumFxLstmModel<B: Backend> {
@@ -172,35 +172,30 @@ impl<B: Backend> SumFxLstmModel<B> {
         crossover_weight: f32,
         device: &Device<B>,
     ) -> Self {
-        let being_model = combine_ffs(
+        let being_model = splice_ffs(
             self.being_model,
             other.being_model,
             crossover_weight,
-            1. - crossover_weight,
         );
-        let fo_model = combine_ffs(
+        let fo_model = splice_ffs(
             self.fo_model,
             other.fo_model,
             crossover_weight,
-            1. - crossover_weight,
         );
-        let speechlet_model = combine_ffs(
+        let speechlet_model = splice_ffs(
             self.speechlet_model,
             other.speechlet_model,
             crossover_weight,
-            1. - crossover_weight,
         );
-        let self_model = combine_ffs(
+        let self_model = splice_ffs(
             self.self_model,
             other.self_model,
             crossover_weight,
-            1. - crossover_weight,
         );
-        let final_model = combine_ffs(
+        let final_model = splice_ffs(
             self.final_model,
             other.final_model,
             crossover_weight,
-            1. - crossover_weight,
         );
 
         return SumFxLstmModel {
@@ -238,7 +233,7 @@ impl<B: Backend> SumFxLstmModel<B> {
         ] {
             let config = model.config.clone();
             let mutation_model = FF::new(config.0, config.1, device);
-            let new_model = combine_ffs(model, mutation_model, 1., mutation_rate);
+            let new_model = splice_ffs(model, mutation_model, 1. - mutation_rate);
             new_models.push(new_model);
         }
 

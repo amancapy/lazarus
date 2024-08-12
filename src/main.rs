@@ -31,8 +31,8 @@ pub mod consts {
 
     pub const VIS_FREQUENCY:                          usize = 1;
 
-    pub const W_SIZE:                                 usize = 999;
-    pub const N_CELLS:                                usize = 333;
+    pub const W_SIZE:                                 usize = 333;
+    pub const N_CELLS:                                usize = 111;
     pub const CELL_SIZE:                              usize = W_SIZE / N_CELLS;
     pub const CELL_SIZE_FLOAT:                          f32 = CELL_SIZE as f32;
     pub const W_FLOAT:                                  f32 = W_SIZE as f32;
@@ -83,8 +83,8 @@ pub mod consts {
 
     pub const N_FOOD_SPAWN_PER_STEP:                  usize = 1;
     
-    pub static mut MAX_FOOD:                          usize = 1000;
-    pub const MIN_FOOD:                               usize = 250;
+    pub static mut MAX_FOOD:                          usize = 500;
+    pub const MIN_FOOD:                               usize = 125;
     pub const MAX_FOOD_REDUCTION:                     usize = 5;
 
     pub const SPEECHLET_LEN:                          usize = 8;                   // length of the sound vector a being can emit
@@ -92,7 +92,7 @@ pub mod consts {
     
     pub type BACKEND                                        = backend::NdArray;
     pub const DEVICE:       backend::ndarray::NdArrayDevice = backend::ndarray::NdArrayDevice::Cpu;
-    pub type Model                                          = SumFxLstmModel<BACKEND>;
+    pub type Model                                          = SumFxModel<BACKEND>;
 }
 
 use consts::*;
@@ -1062,21 +1062,8 @@ pub fn run() -> GameResult {
 
 pub fn gauge() {
     let mut w = World::<2>::standard_world();
-    let now = SystemTime::now();
     loop {
         w.step(1);
-        if w.age % 60 == 0 {
-            let duration = match now.elapsed() {
-                Ok(now) => now.as_millis(),
-                _ => 5 as u128,
-            };
-            println!(
-                "{} {}, fps: {}",
-                w.age / 60,
-                w.beings_and_models.len(),
-                w.age as f32 / ((duration as f32) / 1000.)
-            );
-        }
     }
 }
 
